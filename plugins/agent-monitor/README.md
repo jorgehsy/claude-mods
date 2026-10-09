@@ -26,6 +26,21 @@ El skin de Clawd cambia en vivo según lo que hace el agente:
 | **auditor** · auditando | Su tipo o su tarea habla de revisar, auditar, seguridad o QA | Gafas con un barrido rojo y un portapapeles que se va marcando |
 | **base** | Antes de su primera herramienta | Camina y parpadea |
 
+## Modelos
+
+Cuanto más caro el modelo, más destaca, sin tocar el borde de la tarjeta (que es del estado):
+
+| Modelo | Etiqueta | Clawd |
+| --- | --- | --- |
+| Haiku | gris tenue | normal |
+| Sonnet | `● Sonnet` con punto azul | normal |
+| Opus | `◆ Opus` violeta en negrita | dos chispas que titilan |
+| Fable | `✦ Fable` dorado en negrita | halo dorado que late y chispas |
+
+Si hay Opus o Fable trabajando, el encabezado los cuenta: `◆ 1 Opus · ✦ 1 Fable activos`.
+
+La ventana de contexto y el costo salen de `hooks/models.ts`, con los precios de lista de la API de Anthropic (Bedrock y Vertex cobran aparte, así que el costo es estimado). Los modelos actuales tienen 1M de contexto; Haiku 4.5 y los anteriores, 200k.
+
 Para ver todos los skins en todos los estados, genera la vista previa y abre `docs/catalogo.html`:
 
 ```bash
@@ -59,8 +74,8 @@ Después escribe `/reload-plugins` en la sesión abierta.
 
 ## Notas
 
-- Los costos son estimados con precios de lista por modelo; no son tu factura.
-- La ventana de contexto se asume de 200k tokens (1M si el modelo lleva `[1m]`).
+- Los costos son estimados con precios de lista por modelo; no son tu factura (con un plan de suscripción, no pagas por token).
+- Haiku 5.5 cobra 5× por encima de 100k tokens de prompt; el panel lo tiene en cuenta.
 
 ## Licencia
 

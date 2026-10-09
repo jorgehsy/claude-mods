@@ -2,7 +2,8 @@
 // cuartos de bloque (terminal, animado con el mismo cuadro a cuadro).
 //   node scripts/catalogo.ts
 import { writeFileSync, mkdirSync } from 'node:fs'
-import { SKINS, svgOf, cellsOf, COLS, ROWS, type Mood } from '../hooks/skins.ts'
+import { SKINS, svgOf, cellsOf, withTier, COLS, ROWS, type Mood } from '../hooks/skins.ts'
+import type { Tier } from '../hooks/models.ts'
 
 const MOODS: Array<[Mood, string]> = [
   ['work', 'trabajando'], ['wait', 'espera respuesta'], ['sleep', 'terminó'], ['dead', 'falló'],
@@ -35,6 +36,19 @@ for (const skin of Object.values(SKINS)) {
     const id = `${skin.role}-${mood}`
     term[id] = { fps: anim.fps, frames: termFrames(anim.frames.map(cellsOf)) }
     rows += `<figure><div class="svg">${svgOf(anim, mood, 208)}</div><pre class="term" id="${id}"></pre><figcaption>${label}</figcaption></figure>`
+  }
+  rows += '</div></section>'
+}
+
+const TIERS: Array<[Tier, string]> = [['low', 'Haiku · barato'], ['mid', 'Sonnet'], ['high', 'Opus · caro'], ['top', 'Fable · el más caro']]
+for (const role of ['research', 'developer', 'auditor'] as const) {
+  rows += `<section><h2>Niveles de modelo<small> · ${role}, trabajando</small></h2><div class="grid">`
+  for (const [tier, label] of TIERS) {
+    const id = `tier-${role}-${tier}`
+    const svgAnim = withTier(SKINS[role].animate('work'), tier, 'work', 'svg')
+    const termAnim = withTier(SKINS[role].animate('work'), tier, 'work', 'term')
+    term[id] = { fps: termAnim.fps, frames: termFrames(termAnim.frames.map(cellsOf)) }
+    rows += `<figure><div class="svg">${svgOf(svgAnim, 'work', 208)}</div><pre class="term" id="${id}"></pre><figcaption>${label}</figcaption></figure>`
   }
   rows += '</div></section>'
 }

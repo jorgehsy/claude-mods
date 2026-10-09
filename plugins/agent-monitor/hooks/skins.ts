@@ -4,6 +4,8 @@
 // Lienzo de W×H píxeles; cada píxel es 1 de ancho por 2 de alto, como las
 // celdas del logo de Claude Code. Clawd ocupa x 0–17; los accesorios, x 17–25.
 
+import type { Tier } from './models.ts'
+
 export const W = 26
 export const H = 8
 
@@ -17,6 +19,8 @@ export type Animation = {
   frames: Frame[]
   /** Píxeles sólo para el SVG: brillos, sombras, vidrio. */
   shine?: Frame
+  /** Halo difuso detrás de Clawd, sólo en el SVG (color CSS). */
+  glow?: string
 }
 
 export type Skin = {
@@ -285,6 +289,40 @@ export const SKINS: Record<Role, Skin> = {
   base: { role: 'base', label: 'arrancando', accent: '#D97757', animate: base },
 }
 
+// ── Nivel del modelo: chispas para Opus, halo y chispas doradas para Fable ──
+const SPARK_HIGH = 0xc4b5fd
+const SPARK_TOP = 0xf2c14e
+const HALO_TOP = [0x7a5a12, 0xb8891f] // tenue y brillante, late cuadro a cuadro
+
+/** Chispas en las esquinas libres de Clawd, alternando entre dos lugares. */
+const sparks = (c: number, on: 0 | 1): Px[] =>
+  on === 0 ? [[0, 0, c], [1, 7, c]] : [[0, 6, c], [17, 0, c]]
+
+/** Contorno de píxeles alrededor de Clawd, para el terminal (en el SVG es un brillo). */
+const halo = (c: number): Px[] => [
+  ...span(1, 4, 13, c), [2, 1, c], [15, 1, c],
+  [2, 2, c], [2, 3, c], [0, 4, c], [17, 4, c], [2, 5, c], [15, 5, c], [15, 2, c], [15, 3, c],
+]
+
+/**
+ * Suma el nivel del modelo a una animación. `low` y `mid` no suman nada; así
+ * las chispas y el halo saltan a la vista. Con Clawd caído no se adorna.
+ */
+export function withTier(anim: Animation, tier: Tier, mood: Mood, surface: 'term' | 'svg'): Animation {
+  if (tier === 'low' || tier === 'mid' || mood === 'dead') return anim
+  // Una pose quieta se duplica para que las chispas titilen.
+  const base = anim.frames.length === 1 ? [anim.frames[0]!, anim.frames[0]!] : anim.frames
+  const fps = anim.frames.length === 1 ? 2 : anim.fps
+  const spark = tier === 'top' ? SPARK_TOP : SPARK_HIGH
+  const frames = base.map((f, i) => {
+    const on = (Math.floor((i * 4) / base.length) % 2) as 0 | 1
+    // El halo va debajo: Clawd y sus accesorios lo tapan donde se cruzan.
+    const under = tier === 'top' && surface === 'term' ? halo(HALO_TOP[on]!) : []
+    return [...under, ...f, ...sparks(spark, on)]
+  })
+  return { ...anim, fps, frames, glow: tier === 'top' && surface === 'svg' ? '#F2C14E' : anim.glow }
+}
+
 // ── Pintores ─────────────────────────────────────────────────────────────────
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`
 const key = ([x, y, c]: Px) => `${x},${y},${c}`
@@ -323,8 +361,11 @@ export function svgOf(anim: Animation, mood: Mood, px: number): string {
     ? `<text x="15.5" y="3.4" font-size="3.6" font-family="ui-monospace,Menlo,monospace" font-weight="700" fill="#8A8A8A">z<animate attributeName="opacity" values=".15;1;.15" dur="2.4s" repeatCount="indefinite"/><animateTransform attributeName="transform" type="translate" values="0 0;0 -1.2;0 0" dur="2.4s" repeatCount="indefinite"/></text>`
     : ''
   const ground = `<ellipse cx="9" cy="14.6" rx="7.5" ry=".7" fill="#000" opacity=".22"/>`
+  const glow = anim.glow
+    ? `<defs><radialGradient id="g"><stop offset="0" stop-color="${anim.glow}" stop-opacity=".75"/><stop offset="1" stop-color="${anim.glow}" stop-opacity="0"/></radialGradient></defs><ellipse cx="9" cy="8" rx="11" ry="8.5" fill="url(#g)"><animate attributeName="opacity" values=".45;1;.45" dur="1.8s" repeatCount="indefinite"/></ellipse>`
+    : ''
   const h = Math.round((px * (H * 2 + 1)) / W)
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -1 ${W} ${H * 2 + 1}" width="${px}" height="${h}" shape-rendering="crispEdges">${ground}<g transform="scale(1 2)">${rects(shared)}${rects(shine, ' opacity=".55"')}${layers}</g>${zz}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -1 ${W} ${H * 2 + 1}" width="${px}" height="${h}" shape-rendering="crispEdges">${glow}${ground}<g transform="scale(1 2)">${anim.glow ? `<rect x="3" y="2" width="12" height="4" fill="${hex(C.ink)}"/>` : ''}${rects(shared)}${rects(shine, ' opacity=".55"')}${layers}</g>${zz}</svg>`
 }
 
 /** Celdas del Raster del terminal para un cuadro: cuartos de bloque, 2×2 píxeles. */

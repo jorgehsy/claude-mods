@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { AgentRow } from '../types'
-import { SKINS, svgOf, cellsOf, COLS, ROWS, type Mood, type Role } from './skins.ts'
+import { SKINS, svgOf, cellsOf, withTier, COLS, ROWS, type Mood, type Role } from './skins.ts'
+import { modelInfo, costOf, tierOf, TIER_STYLE, type Tier } from './models.ts'
 
 const PANE = 'agent-monitor'
 const rows = atom({ plugin: 'agent-monitor', key: 'rows' } as const, {})
@@ -13,17 +14,7 @@ const opened = atom({ plugin: 'agent-monitor', key: 'opened' } as const, false)
 // reparten según sus propios fps.
 const TICK = 125
 
-// ── Precios y ventana ────────────────────────────────────────────────────────
-// USD por millón de tokens: [entrada, salida, lectura de caché, escritura de caché]. Estimados.
-const PRICES: Array<[string, [number, number, number, number]]> = [
-  ['opus', [15, 75, 1.5, 18.75]],
-  ['fable', [15, 75, 1.5, 18.75]],
-  ['sonnet', [3, 15, 0.3, 3.75]],
-  ['haiku', [1, 5, 0.1, 1.25]],
-]
-const priceOf = (model: string) =>
-  PRICES.find(([k]) => model.toLowerCase().includes(k))?.[1] ?? [3, 15, 0.3, 3.75]
-const windowOf = (model: string) => (/1m/i.test(model) ? 1_000_000 : 200_000)
+// ── Precio y ventana: ver models.ts ─────────────────────────────────────────
 const k = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 
 function prettyModel(model: string) {
@@ -156,9 +147,10 @@ export const register: Register = on => {
         cache_read_input_tokens: n(res.usage.cache_read_input_tokens),
         cache_creation_input_tokens: n(res.usage.cache_creation_input_tokens),
       }
-      const p = priceOf(u.model)
-      const cost = (u.input_tokens * p[0] + u.output_tokens * p[1] +
-        u.cache_read_input_tokens * p[2] + u.cache_creation_input_tokens * p[3]) / 1e6
+      const cost = costOf(u.model, {
+        input: u.input_tokens, output: u.output_tokens,
+        cacheRead: u.cache_read_input_tokens, cacheWrite: u.cache_creation_input_tokens,
+      })
       await update($, rows, (all: Record<string, AgentRow>) => {
         const r = all[id] ?? blank(id)
         return {
@@ -191,11 +183,16 @@ export const register: Register = on => {
     const tokens = all.reduce((s, r) => s + r.input + r.output + r.cacheRead + r.cacheWrite, 0)
     const live = all.filter(r => moodOf(r.status) === 'work').length
     const waiting = all.filter(r => moodOf(r.status) === 'wait').length
+    // Opus y Fable trabajando o esperando: se cuentan arriba para verlos sin bajar.
+    const busy = all.filter(r => moodOf(r.status) === 'work' || moodOf(r.status) === 'wait')
+    const costly = (['top', 'high'] as const)
+      .map(t => [t, busy.filter(r => tierOf(r.model) === t).length] as [Tier, number])
+      .filter(([, n]) => n > 0)
     const cols = (e.props as any)?.bodyColumns ?? 40
     const barW = Math.max(10, Math.min(30, cols - 12))
 
-    const mascot = (role: Role, mood: Mood, key: string) => {
-      const anim = SKINS[role].animate(mood)
+    const mascot = (role: Role, mood: Mood, key: string, tier: Tier = 'mid') => {
+      const anim = withTier(SKINS[role].animate(mood), tier, mood, isTerm ? 'term' : 'svg')
       if (isTerm && 'Raster' in els) {
         const { Raster } = els as any
         const n = anim.frames.length
@@ -238,6 +235,14 @@ export const register: Register = on => {
             <Text color={STATUS_COLOR.work}>● {live} trabajando</Text>
             {waiting > 0 && <Text color={STATUS_COLOR.wait} bold>   ▲ {waiting} esperan</Text>}
           </Text>
+          {costly.length > 0 && (
+            <Text>
+              {costly.map(([t, n], i) => (
+                <Text key={t} color={TIER_STYLE[t].color} bold>{i > 0 ? ' · ' : ''}{TIER_STYLE[t].mark}{n} {t === 'top' ? 'Fable' : 'Opus'}</Text>
+              ))}
+              <Text dimColor> activos</Text>
+            </Text>
+          )}
           <Text dimColor>{k(tokens)} tokens · ~US$ {total.toFixed(3)}</Text>
         </Box>
 
@@ -251,22 +256,24 @@ export const register: Register = on => {
         {sorted.map(r => {
           const role = roleOf(r)
           const skin = SKINS[role]
+          const tier = tierOf(r.model)
+          const ts = TIER_STYLE[tier]
           const mood = moodOf(r.status)
-          const win = windowOf(r.model)
+          const win = modelInfo(r.model).window
           const ratio = r.context / win
           const dim = mood === 'sleep'
           const border = mood === 'wait' ? (tick % 4 < 2 ? STATUS_COLOR.wait : '#D97757') : STATUS_COLOR[mood]
           return (
             <Box key={r.id} borderStyle={mood === 'wait' ? 'bold' : 'round'} borderColor={border} paddingX={1} flexDirection="column">
               <Box flexDirection="row" gap={1}>
-                {mascot(role, mood, r.id)}
+                {mascot(role, mood, r.id, tier)}
                 <Box flexDirection="column" flexGrow={1}>
                   <Text bold dimColor={dim}>{r.type}</Text>
                   <Text color={STATUS_COLOR[mood]} bold={mood === 'wait'}>
                     {mood === 'wait' ? '▲ ' : '● '}{LABEL[r.status] ?? r.status}
                   </Text>
                   {role !== 'base' && (mood === 'work' || mood === 'wait') && <Text color={skin.accent}>◆ {skin.label}</Text>}
-                  <Text dimColor>{prettyModel(r.model)}</Text>
+                  <Text color={ts.color} bold={ts.bold} dimColor={ts.dim}>{ts.mark}{prettyModel(r.model)}</Text>
                 </Box>
               </Box>
               {r.description !== '' && <Text dimColor={dim} wrap="truncate-end">{r.description}</Text>}
