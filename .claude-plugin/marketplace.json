@@ -1,0 +1,12 @@
+{
+  "name": "jorge-mods",
+  "owner": { "name": "Jorge Simoes", "url": "https://github.com/jorgehsy" },
+  "description": "Mods de Claude Code de Jorge Simoes",
+  "plugins": [
+    {
+      "name": "agent-monitor",
+      "source": "./plugins/agent-monitor",
+      "description": "Panel en vivo de subagentes con un Clawd por agente: estado, modelo, tokens, costo y contexto"
+    }
+  ]
+}
