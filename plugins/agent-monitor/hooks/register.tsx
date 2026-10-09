@@ -9,10 +9,14 @@ const PANE = 'agent-monitor'
 const rows = atom({ plugin: 'agent-monitor', key: 'rows' } as const, {})
 const frame = atom({ plugin: 'agent-monitor', key: 'frame' } as const, 0)
 const opened = atom({ plugin: 'agent-monitor', key: 'opened' } as const, false)
+// La hora del panel, al segundo: mueve la cuenta regresiva de los que terminaron.
+const now = atom({ plugin: 'agent-monitor', key: 'now' } as const, 0)
 
 // Cada tick del reloj del panel dura TICK ms; los cuadros de cada skin se
 // reparten según sus propios fps.
 const TICK = 125
+// Un agente que terminó y no recibe otra instrucción en este tiempo se oculta.
+const LINGER = 30_000
 
 // ── Precio y ventana: ver models.ts ─────────────────────────────────────────
 const k = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
@@ -36,23 +40,29 @@ const STATUS_COLOR: Record<Mood, string> = { work: '#4EBA65', wait: '#E5B93C', s
 
 // ── Qué está haciendo: el skin ───────────────────────────────────────────────
 const AUDIT = /review|audit|security|seguridad|vuln|qa\b|checker|reviewer|revis|auditor|evidence/i
-const WRITES = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+const WRITES = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
 const READS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebSearch', 'WebFetch'])
 const RECENT = 6
 
-/** auditor por su encargo; si no, lo que dominan sus últimas herramientas. */
+type Kind = 'read' | 'write' | 'other'
+
+/**
+ * Qué fue una llamada. El motor marca `isReadOnly` con el mismo chequeo de sus
+ * permisos: un `ls` o un `git diff` por Bash es lectura, un `pnpm build` no.
+ */
+function kindOf(tool: string, isReadOnly: boolean | undefined): Kind {
+  if (isReadOnly || READS.has(tool) || tool.startsWith('mcp__')) return 'read'
+  if (WRITES.has(tool)) return 'write'
+  return 'other'
+}
+
+/** auditor por su encargo; si no, lo que dominan sus últimas llamadas. */
 function roleOf(r: AgentRow): Role {
   if (AUDIT.test(`${r.type} ${r.description}`)) return 'auditor'
-  const tools = r.tools ?? []
-  if (tools.length === 0) return /explore|plan|research|buscador/i.test(r.type) ? 'research' : 'base'
-  let dev = 0
-  let res = 0
-  for (const t of tools) {
-    if (WRITES.has(t)) dev += 1
-    else if (t === 'Bash') dev += 0.5
-    else if (READS.has(t) || t.startsWith('mcp__')) res += 1
-  }
-  return dev > res ? 'developer' : 'research'
+  const kinds = (r.tools ?? []).filter(t => t === 'read' || t === 'write')
+  if (kinds.length === 0) return /explore|plan|research|buscador/i.test(r.type) ? 'research' : 'base'
+  const writes = kinds.filter(t => t === 'write').length
+  return writes > kinds.length - writes ? 'developer' : 'research'
 }
 
 // ── Datos ────────────────────────────────────────────────────────────────────
@@ -61,12 +71,22 @@ const blank = (id: string): AgentRow => ({
   input: 0, output: 0, cacheRead: 0, cacheWrite: 0, context: 0, usd: 0, tools: [],
 })
 
+const isLive = (status: string) => {
+  const m = moodOf(status)
+  return m === 'work' || m === 'wait'
+}
+
 async function sync($: EngineInterface) {
   const list = await $.agent.list()
+  const t = await $.clock.now()
   await update($, rows, (all: Record<string, AgentRow>) => {
     const next = { ...all }
     for (const a of list) {
-      next[a.id] = { ...(next[a.id] ?? blank(a.id)), type: a.type, description: a.description, status: a.status }
+      const prev = next[a.id] ?? blank(a.id)
+      const live = isLive(String(a.status))
+      // Al terminar arranca la cuenta; si vuelve a trabajar, se cancela.
+      const endedAt = live ? undefined : prev.endedAt ?? t
+      next[a.id] = { ...prev, type: a.type, description: a.description, status: a.status, endedAt }
     }
     return next
   })
@@ -101,6 +121,23 @@ export const register: Register = on => {
         await update($, frame, (n: number) => n + 1)
       }
     })
+    // Cada segundo: estado al día, cuenta regresiva y ocultar a los que se cumplió.
+    $.clock.every(1000, async () => {
+      const all = Object.values(await read($, rows)) as AgentRow[]
+      const t = await $.clock.now()
+      if (all.some(r => r.endedAt === undefined || t - r.endedAt < LINGER + 1000)) {
+        await sync($)
+        // Los que ya no lista el motor también cuentan desde ahora.
+        await update($, rows, (cur: Record<string, AgentRow>) => {
+          const out = { ...cur }
+          for (const [id, r] of Object.entries(out)) {
+            if (!isLive(r.status) && r.endedAt === undefined) out[id] = { ...r, endedAt: t }
+          }
+          return out
+        })
+        await update($, now, () => t)
+      }
+    })
     return next(e)
   })
 
@@ -118,21 +155,23 @@ export const register: Register = on => {
     return r
   })
 
-  // Cada herramienta que usa un subagente decide su skin.
+  // Cada herramienta que usa un subagente decide su skin, ya resuelta.
   on('tool.call', async ($, e, next) => {
+    const res = await next(e)
     const id = e.agentId
     if (id) {
       try {
+        const kind = kindOf(String(e.tool), (res as { isReadOnly?: boolean }).isReadOnly)
         await update($, rows, (all: Record<string, AgentRow>) => {
           const r = all[id] ?? blank(id)
-          return { ...all, [id]: { ...r, tools: [...(r.tools ?? []), String(e.tool)].slice(-RECENT) } }
+          return { ...all, [id]: { ...r, tools: [...(r.tools ?? []), kind].slice(-RECENT) } }
         })
       } catch (err) {
         // El panel nunca frena una herramienta; el fallo queda en el log de depuración.
         $.ui.log(`agent-monitor: no se pudo anotar ${String(e.tool)}: ${String(err)}`, { to: 'debug' })
       }
     }
-    return next(e)
+    return res
   })
 
   on('turn.step', async function* ($, e, next) {
@@ -176,11 +215,15 @@ export const register: Register = on => {
     const els = $.ui.resolve(e)
     const { Box, Text } = els
     const isTerm = e.surface === 'terminal'
-    const all = Object.values(await read($, rows)) as AgentRow[]
+    const every = Object.values(await read($, rows)) as AgentRow[]
+    const t = (await read($, now)) as number
+    const left = (r: AgentRow) => (r.endedAt === undefined ? null : Math.max(0, Math.ceil((LINGER - (t - r.endedAt)) / 1000)))
+    const all = every.filter(r => left(r) !== 0)
     // Sólo el terminal anima cuadro a cuadro; el SVG del escritorio se anima solo.
     const tick = isTerm ? ((await read($, frame)) as number) : 0
-    const total = all.reduce((s, r) => s + r.usd, 0)
-    const tokens = all.reduce((s, r) => s + r.input + r.output + r.cacheRead + r.cacheWrite, 0)
+    // Tokens y costo: toda la sesión, también los que ya se ocultaron.
+    const total = every.reduce((s, r) => s + r.usd, 0)
+    const tokens = every.reduce((s, r) => s + r.input + r.output + r.cacheRead + r.cacheWrite, 0)
     const live = all.filter(r => moodOf(r.status) === 'work').length
     const waiting = all.filter(r => moodOf(r.status) === 'wait').length
     // Opus y Fable trabajando o esperando: se cuentan arriba para verlos sin bajar.
@@ -229,7 +272,7 @@ export const register: Register = on => {
         <Box flexDirection="column" paddingX={1}>
           <Text>
             <Text bold color="#D97757">✻ Agentes</Text>
-            <Text dimColor>  {all.length} en total</Text>
+            <Text dimColor>  {all.length} en el panel</Text>
           </Text>
           <Text>
             <Text color={STATUS_COLOR.work}>● {live} trabajando</Text>
@@ -237,13 +280,13 @@ export const register: Register = on => {
           </Text>
           {costly.length > 0 && (
             <Text>
-              {costly.map(([t, n], i) => (
-                <Text key={t} color={TIER_STYLE[t].color} bold>{i > 0 ? ' · ' : ''}{TIER_STYLE[t].mark}{n} {t === 'top' ? 'Fable' : 'Opus'}</Text>
+              {costly.map(([tier, n], i) => (
+                <Text key={tier} color={TIER_STYLE[tier].color} bold>{i > 0 ? ' · ' : ''}{TIER_STYLE[tier].mark}{n} {tier === 'top' ? 'Fable' : 'Opus'}</Text>
               ))}
               <Text dimColor> activos</Text>
             </Text>
           )}
-          <Text dimColor>{k(tokens)} tokens · ~US$ {total.toFixed(3)}</Text>
+          <Text dimColor>{k(tokens)} tokens · ~US$ {total.toFixed(3)} en la sesión</Text>
         </Box>
 
         {all.length === 0 && (
@@ -271,6 +314,7 @@ export const register: Register = on => {
                   <Text bold dimColor={dim}>{r.type}</Text>
                   <Text color={STATUS_COLOR[mood]} bold={mood === 'wait'}>
                     {mood === 'wait' ? '▲ ' : '● '}{LABEL[r.status] ?? r.status}
+                    {left(r) !== null && <Text dimColor>  · se oculta en {left(r)} s</Text>}
                   </Text>
                   {role !== 'base' && (mood === 'work' || mood === 'wait') && <Text color={skin.accent}>◆ {skin.label}</Text>}
                   <Text color={ts.color} bold={ts.bold} dimColor={ts.dim}>{ts.mark}{prettyModel(r.model)}</Text>

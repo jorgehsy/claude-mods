@@ -10,7 +10,7 @@ Panel en vivo para Claude Code que muestra tus subagentes. Cada uno es un Clawd,
 
 Cada tarjeta muestra:
 
-- **Estado**: trabajando, espera tu respuesta (`!` que titila), terminó (duerme, con una `z`) o falló (gris).
+- **Estado**: trabajando, espera tu respuesta (`!` que titila), terminó (duerme, con una `z`) o falló (gris). Un agente que terminó se oculta si en 30 segundos no recibe otra instrucción; la tarjeta muestra la cuenta regresiva.
 - **Modelo**: por ejemplo «Sonnet 5.5».
 - **Tokens y costo estimado** en US$.
 - **Barra de contexto**: verde, amarilla o roja según lo lleno que esté.
@@ -21,7 +21,7 @@ El skin de Clawd cambia en vivo según lo que hace el agente:
 
 | Skin | Cuándo | Animación |
 | --- | --- | --- |
-| **research** · investigando | Sus últimas herramientas son sobre todo de búsqueda o lectura (`Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch`) | Una lupa sube y baja, Clawd la sigue con la mirada y el vidrio destella |
+| **research** · investigando | Sus últimas herramientas son sobre todo de búsqueda o lectura (`Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch`) | Explorador que marcha con una bandera que flamea; al terminar, la bandera cae |
 | **developer** · programando | Sus últimas herramientas son sobre todo de escritura (`Edit`, `Write`) o comandos (`Bash`) | Audífonos y laptop: teclea con un brazo y luego con el otro, y el código corre en pantalla |
 | **auditor** · auditando | Su tipo o su tarea habla de revisar, auditar, seguridad o QA | Gafas con un barrido rojo y un portapapeles que se va marcando |
 | **base** | Antes de su primera herramienta | Camina y parpadea |

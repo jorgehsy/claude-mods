@@ -10,12 +10,14 @@ export type AgentRow = {
   cacheWrite: number
   context: number
   usd: number
-  /** Últimas herramientas que usó, de la más vieja a la más nueva. */
+  /** Qué fueron sus últimas llamadas ('read' | 'write' | 'other'), de la más vieja a la más nueva. */
   tools: string[]
+  /** Cuándo dejó de trabajar (ms); sin valor mientras trabaja o espera. */
+  endedAt?: number
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    'agent-monitor': { rows: Record<string, AgentRow>; frame: number; opened: boolean }
+    'agent-monitor': { rows: Record<string, AgentRow>; frame: number; opened: boolean; now: number }
   }
 }

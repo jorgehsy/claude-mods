@@ -13,3 +13,4 @@ test('el panel dibuja a Clawd en terminal (Raster) y en escritorio (Svg)', async
     await ui.unmount()
   }
 })
+

@@ -51,8 +51,6 @@ export const C = {
   redDim: 0x7a2a26,
   wood: 0x8b5a2b,
   woodSh: 0x6b4420,
-  glass: 0x2b4b5a,
-  glint: 0xdff4ff,
 }
 
 const span = (y: number, a: number, b: number, c: number): Px[] =>
@@ -112,40 +110,40 @@ const waitFrames = (pose: Frame, blinkPose: Frame): Frame[] => [
   [...blinkPose],
 ]
 
-// ── Research: lupa que barre, mirada siguiéndola, destello en el vidrio ────
+// ── Research: explorador que marcha con una bandera que flamea ─────────────
+// Tela: L = 1 claro, D = 2 sombra (la onda que corre), . = vacío. x 19–24, y 0–2.
+const FLAG_WAVE = [
+  ['11211.', '112111', '1121..'],
+  ['111211', '11121.', '11121.'],
+  ['1111..', '111121', '111112'],
+  ['12111.', '12111.', '121111'],
+]
+const FLAG_LIMP = ['11.', '11.', '1..', '1..'] // caída, sin viento: y 1–4, x 19–21
+
 function research(mood: Mood): Animation {
   const color = bodyOf(mood)
-  const lens = (dy: number, glintAt: number | null): Px[] => {
-    const y0 = 1 + dy
-    const ring = tint(mood, C.steel)
-    const px: Px[] = [
-      ...span(y0, 20, 23, ring), ...span(y0 + 3, 20, 23, ring),
-      [19, y0 + 1, ring], [19, y0 + 2, ring], [24, y0 + 1, ring], [24, y0 + 2, ring],
-      ...span(y0 + 1, 20, 23, C.glass), ...span(y0 + 2, 20, 23, C.glass),
-      [18, y0 + 3, tint(mood, C.wood)], [18, y0 + 4, tint(mood, C.wood)],
-    ]
-    if (glintAt !== null) {
-      const spots: Array<[number, number]> = [[20, 1], [21, 1], [22, 1], [23, 2], [22, 2], [21, 2]]
-      const [gx, gy] = spots[glintAt % spots.length]!
-      px.push([gx, y0 + gy, C.glint])
-    }
-    return px
-  }
+  const pole = tint(mood, C.steel)
+  const lite = tint(mood, C.yellow)
+  const dark = tint(mood, 0xb8891f)
+  const staff: Px[] = [[18, 0, tint(mood, C.yellow)], ...[1, 2, 3, 4, 5, 6].map(y => [18, y, pole] as Px)]
+  const cloth = (rows: string[], y0: number): Px[] =>
+    rows.flatMap((row, dy) => [...row].flatMap((ch, dx) =>
+      ch === '1' ? [[19 + dx, y0 + dy, lite] as Px] : ch === '2' ? [[19 + dx, y0 + dy, dark] as Px] : []))
   if (mood === 'work') {
-    const dys = [0, -1, -1, 0, 0, 1, 1, 0]
     return {
       fps: 8,
-      frames: dys.map((dy, f) => [
+      frames: Array.from({ length: 8 }, (_, f) => [
         ...clawd({ eyes: f === 7 ? 'closed' : 'right', arms: 'hold', legs: (f >> 1) % 2 as 0 | 1, color }),
-        ...lens(dy, f),
-        ...(f % 4 < 2 ? [[25, 1 + dy, C.yellow] as Px] : []),
+        ...staff,
+        ...cloth(FLAG_WAVE[f % 4]!, 0),
       ]),
       shine: bodyShine(color),
     }
   }
-  const still = [...clawd({ eyes: mood === 'wait' ? 'open' : 'closed', arms: 'hold', legs: 0, color }), ...lens(1, null)]
+  const limp = cloth(FLAG_LIMP, 1)
+  const still = [...clawd({ eyes: mood === 'wait' ? 'open' : 'closed', arms: 'hold', legs: 0, color }), ...staff, ...limp]
   if (mood === 'wait') {
-    const blink = [...clawd({ eyes: 'closed', arms: 'hold', legs: 0, color }), ...lens(1, null)]
+    const blink = [...clawd({ eyes: 'closed', arms: 'hold', legs: 0, color }), ...staff, ...limp]
     return { fps: 3, frames: waitFrames(still, blink), shine: bodyShine(color) }
   }
   return { fps: 1, frames: [still], shine: bodyShine(color) }
