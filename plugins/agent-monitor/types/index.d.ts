@@ -10,6 +10,8 @@ export type AgentRow = {
   cacheWrite: number
   context: number
   usd: number
+  /** Últimas herramientas que usó, de la más vieja a la más nueva. */
+  tools: string[]
 }
 
 declare module 'claude-code' {

@@ -1,6 +1,6 @@
 {
   "name": "agent-monitor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Live pane of subagents with a Clawd per agent: status, model, tokens, cost and context",
   "author": { "name": "Jorge Simoes", "url": "https://github.com/jorgehsy" },
   "repository": "https://github.com/jorgehsy/claude-mods",

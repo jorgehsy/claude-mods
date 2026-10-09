@@ -20,7 +20,7 @@ claude plugin install <mod>@jorge-mods --scope user
 
 | Mod | Qué hace |
 | --- | --- |
-| [agent-monitor](plugins/agent-monitor) | Panel en vivo de subagentes con un Clawd por agente: estado, modelo, tokens, costo y contexto. |
+| [agent-monitor](plugins/agent-monitor) | Panel en vivo de subagentes con un Clawd por agente que cambia de skin según lo que hace (research, developer, auditor): estado, modelo, tokens, costo y contexto. |
 
 ## Actualizar
 
