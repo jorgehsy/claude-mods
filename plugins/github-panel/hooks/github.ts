@@ -94,8 +94,6 @@ export const canMerge = (p: Pr) => p.mergeable === 'MERGEABLE' && !p.isDraft && 
 export const canRetry = (p: Pr) => p.checks === 'failed'
 
 // ── Textos ───────────────────────────────────────────────────────────────────
-export const CHECKS_LABEL: Record<Checks, string> = { ok: 'checks ok', failed: 'checks fallaron', running: 'checks corriendo', none: 'sin checks' }
-export const MERGE_LABEL: Record<Mergeable, string> = { MERGEABLE: 'se puede mergear', CONFLICTING: 'conflictos', UNKNOWN: 'calculando' }
 
 /** «hace 5 s», «hace 2 min»; «—» si nunca se leyó. */
 export function ago(now: number, at: number): string {
@@ -112,3 +110,40 @@ export function labelFg(hex: string): string {
 }
 
 export const labelBg = (hex: string) => (/^[0-9a-f]{6}$/i.test(hex) ? `#${hex}` : '#888888')
+
+// ── Dibujo: piezas puras ─────────────────────────────────────────────────────
+export const C = {
+  ok: '#6cc483', bad: '#e5675f', warn: '#d9a54a', muted: '#7d7b73', accent: '#d97757',
+  border: '#3a3936', borderHover: '#6b6a65', borderBad: '#5a3533', pill: '#2a2a28',
+} as const
+
+/** Barra de sub-issues: hasta 10 celdas, `▰` hechas y `▱` por hacer. */
+export function progressBar(done: number, total: number): { filled: string; empty: string; label: string } {
+  if (!(total > 0)) return { filled: '', empty: '', label: '' }
+  const d = Math.min(Math.max(done, 0), total)
+  const cells = Math.min(total, 10)
+  const f = Math.round((d / total) * cells)
+  return { filled: '▰'.repeat(f), empty: '▱'.repeat(cells - f), label: `${d}/${total}` }
+}
+
+export type Status = { glyph: string; text: string; color?: string; dim?: boolean }
+
+export function checkStatus(c: Checks): Status {
+  switch (c) {
+    case 'ok': return { glyph: '✓', text: 'checks', color: C.ok }
+    case 'failed': return { glyph: '✗', text: 'checks fallaron', color: C.bad }
+    case 'running': return { glyph: '◌', text: 'checks corriendo', color: C.warn }
+    default: return { glyph: '', text: 'sin checks', dim: true }
+  }
+}
+
+export function mergeStatus(m: Mergeable): Status {
+  switch (m) {
+    case 'MERGEABLE': return { glyph: '✓', text: 'mergeable', color: C.ok }
+    case 'CONFLICTING': return { glyph: '⚠', text: 'conflictos', color: C.warn }
+    default: return { glyph: '', text: 'calculando', dim: true }
+  }
+}
+
+/** La tarjeta de un PR se pinta rojiza si fallaron los checks o hay conflictos. */
+export const prIsBad = (p: Pr) => p.checks === 'failed' || p.mergeable === 'CONFLICTING'

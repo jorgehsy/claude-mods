@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Issue, Pr, Snapshot } from '../types'
 import {
   QUERY, parseRepo, parseGraphql, ghError, canTake, canMerge, canRetry,
-  CHECKS_LABEL, MERGE_LABEL, ago, labelFg, labelBg,
+  C, progressBar, checkStatus, mergeStatus, prIsBad, ago, labelFg, labelBg,
 } from './github.ts'
 
 const PANE = 'github-panel'
@@ -167,7 +167,7 @@ export const register: Register = on => {
     const toggle = (k: 'issues' | 'prs') => update($, collapsed, (c: { issues: boolean; prs: boolean }) => ({ ...c, [k]: !c[k] }))
     const noteLine = (key: string) => {
       const m = msgs[key]
-      return m ? <Text color={m.startsWith('Error') ? '#E5534B' : '#4EBA65'} wrap="truncate-end">{m}</Text> : null
+      return m ? <Text color={m.startsWith('Error') ? C.bad : C.ok} wrap="truncate-end">{m}</Text> : null
     }
     const btn = (key: string, label: string, onPress: () => void, variant?: 'primary') => (
       <Button key={key} label={working[key] ? '…' : label} variant={variant} onPress={() => { if (!working[key]) onPress() }} />
@@ -177,56 +177,85 @@ export const register: Register = on => {
       <Text key={l.name} backgroundColor={labelBg(l.color)} color={labelFg(l.color)}>{` ${l.name} `}</Text>
     ))
 
-    const issueRow = (i: Issue) => (
-      <Box key={i.number} flexDirection="column">
-        <Box flexDirection="row" gap={1}>
-          <Box flexGrow={1}>
-            <Text wrap="truncate-end"><Text bold color="#4EBA65">#{i.number}</Text> <Link href={i.url}>{i.title}</Link></Text>
-          </Box>
-          {canTake(i) && btn(`take-${i.number}`, 'Tomarlo', () => take($, i))}
+    // Terminal: botones siempre a la vista. Otras superficies: se revelan al pasar el puntero,
+    // salvo que haya confirmación, trabajo en curso o un mensaje en esa tarjeta.
+    const onTerminal = e.surface === 'terminal'
+    const actions = (id: string, pinned: boolean, kids: any[]) => {
+      const shown = kids.filter(Boolean)
+      if (shown.length === 0) return null
+      const always = onTerminal || pinned
+      return (
+        <Box flexDirection="row" gap={1} alignSelf="center" display={always ? 'flex' : 'none'} hover={always ? undefined : { display: 'flex' }}>
+          {shown}
         </Box>
-        <Box flexDirection="row" gap={1} flexWrap="wrap">
-          {labels(i)}
-          <Text dimColor={i.assignees.length === 0}>{i.assignees.length ? i.assignees.map(a => `@${a}`).join(' ') : 'sin asignar'}</Text>
-          {i.subTotal > 0 && <Text dimColor>sub {i.subDone}/{i.subTotal}</Text>}
-          {i.prNumber !== undefined ? <Text color="#A371F7">PR #{i.prNumber}</Text> : <Text dimColor>sin PR</Text>}
-        </Box>
-        {noteLine(`issue-${i.number}`)}
+      )
+    }
+    const card = (id: string, bad: boolean, kids: any) => (
+      <Box
+        key={id} flexDirection="row" gap={1} paddingX={1} marginBottom={1}
+        borderStyle="round" borderColor={bad ? C.borderBad : C.border}
+        hover={{ borderColor: bad ? C.bad : C.borderHover }}
+      >
+        {kids}
       </Box>
+    )
+    const status = (s: { glyph: string; text: string; color?: string; dim?: boolean }) => (
+      <Text color={s.color} dimColor={s.dim}>{s.glyph ? `${s.glyph} ${s.text}` : s.text}</Text>
     )
 
-    const checkColor = { ok: '#4EBA65', failed: '#E5534B', running: '#E5B93C', none: '#8A8A8A' } as const
-    const prRow = (p: Pr) => (
-      <Box key={p.number} flexDirection="column">
-        <Box flexDirection="row" gap={1}>
-          <Box flexGrow={1}>
-            <Text wrap="truncate-end">
-              <Text bold color="#A371F7">#{p.number}</Text> <Link href={p.url}>{p.title}</Link>
-              {p.isDraft && <Text dimColor> (borrador)</Text>}
-            </Text>
+    const issueRow = (i: Issue) => {
+      const bar = progressBar(i.subDone, i.subTotal)
+      const pinned = working[`take-${i.number}`] === true || !!msgs[`issue-${i.number}`]
+      return card(`issue-${i.number}`, false, [
+        <Box key="main" flexDirection="column" flexGrow={1}>
+          <Text wrap="truncate-end"><Text color={C.muted}>#{i.number}</Text> <Link href={i.url}>{i.title}</Link></Text>
+          <Box flexDirection="row" gap={2} flexWrap="wrap">
+            {i.labels.length > 0 && <Box flexDirection="row" gap={1}>{labels(i)}</Box>}
+            {i.assignees.length ? <Text>● {i.assignees.map(a => `@${a}`).join(' ')}</Text> : <Text dimColor>○ sin asignar</Text>}
+            {bar.label !== '' && <Text><Text color={C.ok}>{bar.filled}</Text><Text dimColor>{bar.empty}</Text> {bar.label}</Text>}
+            {i.prNumber !== undefined ? <Text>⇄ #{i.prNumber}</Text> : <Text dimColor>sin PR</Text>}
           </Box>
-          {canMerge(p) && asking !== p.number && btn(`merge-${p.number}`, 'Merge', () => update($, confirm, () => p.number), 'primary')}
-          {canRetry(p) && btn(`retry-${p.number}`, 'Reintentar checks', () => retry($, p))}
-        </Box>
-        <Box flexDirection="row" gap={1} flexWrap="wrap">
-          <Text dimColor>{p.head} → {p.base}</Text>
-          <Text color={checkColor[p.checks]}>{CHECKS_LABEL[p.checks]}</Text>
-          <Text color={p.mergeable === 'CONFLICTING' ? '#E5534B' : p.mergeable === 'MERGEABLE' ? '#4EBA65' : '#8A8A8A'}>{MERGE_LABEL[p.mergeable]}</Text>
-        </Box>
-        {asking === p.number && (
-          <Box flexDirection="row" gap={1}>
-            <Text bold>¿Mergear #{p.number}?</Text>
-            {btn(`merge-${p.number}`, 'Sí', () => merge($, p), 'primary')}
-            <Button key={`no-${p.number}`} label="No" onPress={() => update($, confirm, () => null)} />
+          {noteLine(`issue-${i.number}`)}
+        </Box>,
+        actions(`issue-${i.number}`, pinned, [canTake(i) && btn(`take-${i.number}`, 'Tomarlo', () => take($, i))]),
+      ])
+    }
+
+    const prRow = (p: Pr) => {
+      const asked = asking === p.number
+      const pinned = asked || working[`merge-${p.number}`] === true || working[`retry-${p.number}`] === true || !!msgs[`pr-${p.number}`]
+      return card(`pr-${p.number}`, prIsBad(p), [
+        <Box key="main" flexDirection="column" flexGrow={1}>
+          <Text wrap="truncate-end">
+            <Text color={C.muted}>#{p.number}</Text> <Link href={p.url}>{p.title}</Link>
+            {p.isDraft && <Text dimColor> borrador</Text>}
+          </Text>
+          <Box flexDirection="row" gap={2} flexWrap="wrap">
+            <Text dimColor>{p.head} → {p.base}</Text>
+            {status(checkStatus(p.checks))}
+            {status(mergeStatus(p.mergeable))}
           </Box>
-        )}
-        {noteLine(`pr-${p.number}`)}
-      </Box>
-    )
+          {asked && (
+            <Box flexDirection="row" gap={1}>
+              <Text bold>¿Mergear #{p.number}?</Text>
+              {btn(`merge-${p.number}`, 'Sí', () => merge($, p), 'primary')}
+              <Button key={`no-${p.number}`} label="No" onPress={() => update($, confirm, () => null)} />
+            </Box>
+          )}
+          {noteLine(`pr-${p.number}`)}
+        </Box>,
+        actions(`pr-${p.number}`, pinned, [
+          canMerge(p) && !asked && btn(`merge-${p.number}`, 'Merge', () => update($, confirm, () => p.number), 'primary'),
+          canRetry(p) && btn(`retry-${p.number}`, 'Reintentar', () => retry($, p)),
+        ]),
+      ])
+    }
 
     const section = (k: 'issues' | 'prs', head: string, n: number, body: any, emptyText: string) => (
-      <Box flexDirection="column" gap={1}>
-        <Button key={`sec-${k}`} plain label={`${fold[k] ? '▸' : '▾'} ${head} · ${n}`} onPress={() => toggle(k)} />
+      <Box flexDirection="column">
+        <Button key={`sec-${k}`} plain onPress={() => toggle(k)}>
+          {`${fold[k] ? '▸' : '▾'} ${head} `}<Text backgroundColor={C.pill}>{` ${n} `}</Text>
+        </Button>
         {!fold[k] && (n === 0 ? <Text dimColor>{emptyText}</Text> : body)}
       </Box>
     )
@@ -235,14 +264,14 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={1} paddingX={1}>
         <Box flexDirection="row" gap={1}>
           <Box flexGrow={1}>
-            <Text wrap="truncate-end"><Text bold color="#D97757">{name || 'GitHub'}</Text> <Text dimColor>{ago(t, at)}</Text></Text>
+            <Text wrap="truncate-end"><Text bold color={C.accent}>{name || 'GitHub'}</Text> <Text dimColor>· {ago(t, at)}</Text></Text>
           </Box>
           <Button key="refresh" plain label={isRefreshing ? '…' : '↻'} onPress={() => { void refresh($) }} />
         </Box>
-        {err !== '' && <Text color="#E5534B" wrap="truncate-end">{err}</Text>}
+        {err !== '' && <Text color={C.bad} wrap="truncate-end">{err}</Text>}
         {snap === null && err === '' && <Text dimColor>Leyendo GitHub…</Text>}
-        {snap !== null && section('issues', 'Issues', snap.issues.length, <Box flexDirection="column" gap={1}>{snap.issues.map(issueRow)}</Box>, 'Sin issues abiertos')}
-        {snap !== null && section('prs', 'Pull requests', snap.prs.length, <Box flexDirection="column" gap={1}>{snap.prs.map(prRow)}</Box>, 'Sin PR abiertos')}
+        {snap !== null && section('issues', 'Issues', snap.issues.length, <Box flexDirection="column">{snap.issues.map(issueRow)}</Box>, 'Sin issues abiertos')}
+        {snap !== null && section('prs', 'Pull requests', snap.prs.length, <Box flexDirection="column">{snap.prs.map(prRow)}</Box>, 'Sin PR abiertos')}
       </Box>
     )
   })

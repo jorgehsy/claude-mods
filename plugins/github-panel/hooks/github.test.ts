@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { parseRepo, parseGraphql, canMerge, canRetry, canTake, checksOf, ago, ghError, labelFg } from './github.ts'
+import { progressBar, checkStatus, mergeStatus, prIsBad, parseRepo, parseGraphql, canMerge, canRetry, canTake, checksOf, ago, ghError, labelFg } from './github.ts'
 import type { Pr, Issue } from '../types'
 
 const pr = (o: Partial<Pr> = {}): Pr => ({
@@ -78,4 +78,28 @@ test('ago, ghError y labelFg', async () => {
   expect(ghError('')).toBe('No se pudo leer GitHub')
   expect(labelFg('ffffff')).toBe('#000000')
   expect(labelFg('000000')).toBe('#FFFFFF')
+})
+
+test('progressBar escala a 10 celdas y se omite sin sub-issues', async () => {
+  expect(progressBar(0, 0)).toEqual({ filled: '', empty: '', label: '' })
+  expect(progressBar(4, 10)).toEqual({ filled: '▰▰▰▰', empty: '▱▱▱▱▱▱', label: '4/10' })
+  expect(progressBar(1, 3)).toEqual({ filled: '▰', empty: '▱▱', label: '1/3' })
+  expect(progressBar(10, 20)).toEqual({ filled: '▰▰▰▰▰', empty: '▱▱▱▱▱', label: '10/20' })
+  expect(progressBar(9, 3).label).toBe('3/3')
+})
+
+test('checkStatus y mergeStatus eligen glifo, texto y color', async () => {
+  expect(checkStatus('ok')).toEqual({ glyph: '✓', text: 'checks', color: '#6cc483' })
+  expect(checkStatus('failed').color).toBe('#e5675f')
+  expect(checkStatus('running').glyph).toBe('◌')
+  expect(checkStatus('none')).toEqual({ glyph: '', text: 'sin checks', dim: true })
+  expect(mergeStatus('MERGEABLE').text).toBe('mergeable')
+  expect(mergeStatus('CONFLICTING')).toEqual({ glyph: '⚠', text: 'conflictos', color: '#d9a54a' })
+  expect(mergeStatus('UNKNOWN').dim).toBe(true)
+})
+
+test('prIsBad marca checks fallidos o conflictos', async () => {
+  expect(prIsBad(pr())).toBe(false)
+  expect(prIsBad(pr({ checks: 'failed' }))).toBe(true)
+  expect(prIsBad(pr({ mergeable: 'CONFLICTING' }))).toBe(true)
 })

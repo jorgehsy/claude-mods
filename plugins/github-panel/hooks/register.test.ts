@@ -22,7 +22,7 @@ test('el panel lista issues y PR con sus botones', async ($, on) => {
   await $.session.start({ cwd: "/r", surface: "terminal", isInteractive: true })
   const ui = await mount($)
   const tree = JSON.stringify(await ui.drawn())
-  for (const s of ['Issues · 1', 'Pull requests · 1', 'sin asignar', 'Tomarlo', 'Merge', 'feat', 'https://x/4', 'https://x/8']) {
+  for (const s of ['Issues', 'Pull requests', 'sin asignar', 'Tomarlo', 'Merge', 'feat', 'https://x/4', 'https://x/8']) {
     expect(tree.includes(s)).toBe(true)
   }
   expect(tree.includes('Reintentar checks')).toBe(false)
