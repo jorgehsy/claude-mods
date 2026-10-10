@@ -98,6 +98,11 @@ async function sync($: EngineInterface) {
       const endedAt = live ? undefined : prev.endedAt ?? t
       next[a.id] = { ...prev, type: a.type, description: a.description, status: a.status, endedAt }
     }
+    // El motor ya no lista a uno que figuraba trabajando: terminó sin avisar.
+    const seen = new Set(list.map(a => a.id))
+    for (const [id, r] of Object.entries(next)) {
+      if (!seen.has(id) && isLive(r.status)) next[id] = { ...r, status: 'completed', endedAt: r.endedAt ?? t }
+    }
     return next
   })
 }
@@ -252,7 +257,8 @@ export const register: Register = on => {
     let sessionDir = ''
     try { sessionDir = await $.session.cwd() } catch { /* sin directorio, rutas por nombre */ }
     const left = (r: AgentRow) => (r.endedAt === undefined ? null : Math.max(0, Math.ceil((LINGER - (t - r.endedAt)) / 1000)))
-    const all = every.filter(r => left(r) !== 0)
+    // Un id que el motor nunca listó (compactación, memoria) no es un subagente.
+    const all = every.filter(r => left(r) !== 0 && r.type !== '?')
     // Sólo el terminal anima cuadro a cuadro; el SVG del escritorio se anima solo.
     const tick = isTerm ? ((await read($, frame)) as number) : 0
     // Tokens y costo: toda la sesión, también los que ya se ocultaron.
