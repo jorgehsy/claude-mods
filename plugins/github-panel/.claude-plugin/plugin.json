@@ -1,0 +1,9 @@
+{
+  "name": "github-panel",
+  "version": "0.1.0",
+  "description": "Panel en vivo de GitHub con los issues y los PR abiertos del repositorio: tomar un issue, mergear un PR y reintentar checks",
+  "author": { "name": "Jorge Simoes", "url": "https://github.com/jorgehsy" },
+  "repository": "https://github.com/jorgehsy/claude-mods",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

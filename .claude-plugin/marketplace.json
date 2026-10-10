@@ -7,6 +7,11 @@
       "name": "agent-monitor",
       "source": "./plugins/agent-monitor",
       "description": "Panel en vivo de subagentes con un Clawd por agente: estado, modelo, tokens, costo y contexto"
+    },
+    {
+      "name": "github-panel",
+      "source": "./plugins/github-panel",
+      "description": "Panel en vivo de GitHub: issues y PR abiertos del repo, con Tomarlo, Merge y Reintentar checks"
     }
   ]
 }
