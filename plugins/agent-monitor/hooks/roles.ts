@@ -1,16 +1,18 @@
 // Quién es cada agente y qué está haciendo. Lógica pura, sin motor: se prueba suelta.
 //
-//   skin     → por su TIPO (quién es); no cambia mientras trabaja.
+//   skin     → por su TIPO y su descripción (quién es); no cambia mientras trabaja.
 //   actividad → por sus últimas llamadas (qué hace ahora); es la etiqueta de la tarjeta.
 
 import type { Role } from './skins.ts'
 
-export const AUDIT = /review|audit|security|seguridad|vuln|qa\b|checker|reviewer|revis|auditor|evidence/i
+export const AUDIT = /\breview(er)?\b|\baudit\w*|\bsecurity\b|\bseguridad\b|\bvuln\w*|\bqa\b|\bchecker\b|\bevidence\b/i
 const RESEARCH = /explore|plan|research|buscador|lector/i
 const DEVELOPER = /develop|engineer|builder|constructor|coder|frontend|backend|prototyper|architect/i
 
 const WRITES = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
 const READS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebSearch', 'WebFetch'])
+const MCP_READ = /^(get_|list_|search_|read_|query_|fetch_|describe_|find_)/
+const MCP_WRITE = /^(send_|create_|update_|delete_|trash_|write_|set_|apply_|label_|forward_|reply)/
 export const RECENT = 6
 export const MAX_FILES = 5
 
@@ -23,8 +25,13 @@ export type FileRef = { path: string; kind: FileKind }
  * permisos: un `ls` o un `git diff` por Bash es lectura, un `pnpm build` no.
  */
 export function kindOf(tool: string, isReadOnly: boolean | undefined): Kind {
-  if (isReadOnly || READS.has(tool) || tool.startsWith('mcp__')) return 'read'
+  if (isReadOnly || READS.has(tool)) return 'read'
   if (WRITES.has(tool)) return 'write'
+  if (tool.startsWith('mcp__')) {
+    const name = tool.slice(tool.lastIndexOf('__') + 2)
+    if (MCP_READ.test(name)) return 'read'
+    if (MCP_WRITE.test(name)) return 'write'
+  }
   return 'other'
 }
 

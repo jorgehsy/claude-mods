@@ -12,6 +12,14 @@ test('el skin sale del tipo, no de lo que lee o escribe', async () => {
   expect(skinOf('Code Reviewer', '')).toBe('auditor')
   expect(skinOf('general-purpose', 'Audita la seguridad del login')).toBe('auditor')
   expect(skinOf('Security Engineer', '')).toBe('auditor')
+  expect(skinOf('Evidence Collector', '')).toBe('auditor')
+  expect(skinOf('Reality Checker', '')).toBe('auditor')
+})
+
+test('el auditor no se dispara por palabras que sólo contienen review o revis', async () => {
+  expect(skinOf('general-purpose', 'Revisa y corrige el build')).not.toBe('auditor')
+  expect(skinOf('Frontend Developer', 'Arregla el preview del dashboard')).toBe('developer')
+  expect(activityOf(['write', 'write'], 'general-purpose', 'Revisa y corrige el build')).toBe('developer')
 })
 
 test('la actividad sale de las últimas llamadas', async () => {
@@ -31,6 +39,10 @@ test('kindOf distingue lectura, escritura y el resto', async () => {
   expect(kindOf('Bash', false)).toBe('write')
   expect(kindOf('Edit', undefined)).toBe('write')
   expect(kindOf('TodoWrite', undefined)).toBe('other')
+  expect(kindOf('mcp__x__get_message', undefined)).toBe('read')
+  expect(kindOf('mcp__x__send_message', undefined)).toBe('write')
+  expect(kindOf('mcp__x__send_message', true)).toBe('read')
+  expect(kindOf('mcp__x__foo', undefined)).toBe('other')
 })
 
 test('detecta el worktree por la ruta', async () => {

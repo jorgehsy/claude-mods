@@ -23,7 +23,7 @@ El skin de Clawd dice **quién es** el agente: sale de su tipo (y de su tarea, p
 | --- | --- | --- |
 | **research** | `Explore`, `Plan`, researcher, buscador, lector | Explorador que marcha con una bandera que flamea; al terminar, la bandera cae |
 | **developer** | developer, engineer, builder, coder, frontend, backend, prototyper, architect | Audífonos y laptop: teclea con un brazo y luego con el otro, y el código corre en pantalla |
-| **auditor** | Su tipo o su tarea habla de revisar, auditar, seguridad o QA | Gafas con un barrido rojo y un portapapeles con un hallazgo que titila |
+| **auditor** | Su tipo o su tarea habla de review, audit, seguridad o QA (palabras completas) | Gafas con un barrido rojo y un portapapeles con un hallazgo que titila |
 | **general** · generalista | `general-purpose`, `claude` y todo lo demás | Llave inglesa que oscila junto a una caja de herramientas |
 | **base** | Sólo la mascota del panel vacío | Camina y parpadea |
 
