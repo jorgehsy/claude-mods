@@ -17,14 +17,26 @@ Cada tarjeta muestra:
 
 ## Skins
 
-El skin de Clawd cambia en vivo según lo que hace el agente:
+El skin de Clawd dice **quién es** el agente: sale de su tipo (y de su tarea, para el auditor) y no cambia mientras trabaja.
 
-| Skin | Cuándo | Animación |
+| Skin | Tipo de agente | Animación |
 | --- | --- | --- |
-| **research** · investigando | Sus últimas herramientas son sobre todo de búsqueda o lectura (`Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch`) | Explorador que marcha con una bandera que flamea; al terminar, la bandera cae |
-| **developer** · programando | Sus últimas herramientas son sobre todo de escritura (`Edit`, `Write`) o comandos (`Bash`) | Audífonos y laptop: teclea con un brazo y luego con el otro, y el código corre en pantalla |
-| **auditor** · auditando | Su tipo o su tarea habla de revisar, auditar, seguridad o QA | Gafas con un barrido rojo y un portapapeles que se va marcando |
-| **base** | Antes de su primera herramienta | Camina y parpadea |
+| **research** | `Explore`, `Plan`, researcher, buscador, lector | Explorador que marcha con una bandera que flamea; al terminar, la bandera cae |
+| **developer** | developer, engineer, builder, coder, frontend, backend, prototyper, architect | Audífonos y laptop: teclea con un brazo y luego con el otro, y el código corre en pantalla |
+| **auditor** | Su tipo o su tarea habla de revisar, auditar, seguridad o QA | Gafas con un barrido rojo y un portapapeles con un hallazgo que titila |
+| **general** · generalista | `general-purpose`, `claude` y todo lo demás | Llave inglesa que oscila junto a una caja de herramientas |
+| **base** | Sólo la mascota del panel vacío | Camina y parpadea |
+
+La línea `◆` de la tarjeta dice **qué hace ahora**, según sus últimas llamadas: más escrituras que lecturas (`Edit`, `Write`, `Bash`) es «programando»; si no, «investigando». Un auditor siempre dice «auditando». Hasta su primera herramienta, la línea no aparece.
+
+La animación empalma sin saltos: en el escritorio cada animación SVG lleva su fase atada a la hora del reloj, así que un re-dibujo del panel no la reinicia; en la terminal todos los skins usan 8, 4, 2 o 1 cuadros por segundo.
+
+## Dónde y qué toca
+
+A la derecha de cada tarjeta (debajo de la descripción si la terminal tiene menos de 70 columnas):
+
+- **Dónde**: `⎇ rama` y `worktree <nombre>`. El worktree sale del `cwd` con que se lanzó el agente o de las rutas `.claude/worktrees/<nombre>/` que toca; la rama, de `git rev-parse --abbrev-ref HEAD` en su worktree o `cwd` (una vez por directorio) o, si no tiene, en el directorio de la sesión.
+- **Archivos**: los últimos 5 distintos que leyó (`·`) o escribió (`✎`, en negrita), el más nuevo arriba, con la ruta relativa a su worktree, `cwd` o sesión (si queda fuera, sólo el nombre). Mientras no haya ninguno: «sin archivos todavía».
 
 ## Modelos
 

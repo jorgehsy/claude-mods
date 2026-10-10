@@ -4,6 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { AgentRow } from '../types'
 import { SKINS, svgOf, cellsOf, withTier, COLS, ROWS, type Mood, type Role } from './skins.ts'
 import { modelInfo, costOf, tierOf, TIER_STYLE, type Tier } from './models.ts'
+import { skinOf, activityOf, kindOf, fileOf, addFile, worktreeOf, relPath, RECENT } from './roles.ts'
 
 const PANE = 'agent-monitor'
 const rows = atom({ plugin: 'agent-monitor', key: 'rows' } as const, {})
@@ -38,38 +39,47 @@ const LABEL: Record<string, string> = {
 }
 const STATUS_COLOR: Record<Mood, string> = { work: '#4EBA65', wait: '#E5B93C', sleep: '#8A8A8A', dead: '#E5534B' }
 
-// ── Qué está haciendo: el skin ───────────────────────────────────────────────
-const AUDIT = /review|audit|security|seguridad|vuln|qa\b|checker|reviewer|revis|auditor|evidence/i
-const WRITES = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'])
-const READS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebSearch', 'WebFetch'])
-const RECENT = 6
-
-type Kind = 'read' | 'write' | 'other'
-
-/**
- * Qué fue una llamada. El motor marca `isReadOnly` con el mismo chequeo de sus
- * permisos: un `ls` o un `git diff` por Bash es lectura, un `pnpm build` no.
- */
-function kindOf(tool: string, isReadOnly: boolean | undefined): Kind {
-  if (isReadOnly || READS.has(tool) || tool.startsWith('mcp__')) return 'read'
-  if (WRITES.has(tool)) return 'write'
-  return 'other'
-}
-
-/** auditor por su encargo; si no, lo que dominan sus últimas llamadas. */
-function roleOf(r: AgentRow): Role {
-  if (AUDIT.test(`${r.type} ${r.description}`)) return 'auditor'
-  const kinds = (r.tools ?? []).filter(t => t === 'read' || t === 'write')
-  if (kinds.length === 0) return /explore|plan|research|buscador/i.test(r.type) ? 'research' : 'base'
-  const writes = kinds.filter(t => t === 'write').length
-  return writes > kinds.length - writes ? 'developer' : 'research'
-}
-
 // ── Datos ────────────────────────────────────────────────────────────────────
 const blank = (id: string): AgentRow => ({
   id, type: '?', description: '', status: 'running', model: '-',
-  input: 0, output: 0, cacheRead: 0, cacheWrite: 0, context: 0, usd: 0, tools: [],
+  input: 0, output: 0, cacheRead: 0, cacheWrite: 0, context: 0, usd: 0, tools: [], files: [],
 })
+
+// ── Dónde está: la rama de git, una sola vez por directorio ──────────────────
+const branches = new Map<string, Promise<string | null>>()
+
+function branchOf($: EngineInterface, dir: string): Promise<string | null> {
+  let p = branches.get(dir)
+  if (!p) {
+    p = $.process.run(['git', '-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeoutMs: 5000 })
+      .then(res => {
+        const name = res.stdout.trim()
+        // Fuera de un repositorio, o con HEAD suelto, no hay rama que mostrar.
+        return res.exitCode === 0 && name !== '' && name !== 'HEAD' ? name : null
+      })
+      .catch(err => {
+        $.ui.log(`agent-monitor: sin rama para ${dir}: ${String(err)}`, { to: 'debug' })
+        return null
+      })
+    branches.set(dir, p)
+  }
+  return p
+}
+
+/** Anota la rama del agente: la de su worktree o cwd; si no tiene, la de la sesión. */
+async function locate($: EngineInterface, id: string) {
+  try {
+    const r = ((await read($, rows)) as Record<string, AgentRow>)[id]
+    if (!r) return
+    const dir = r.root ?? r.cwd ?? (await $.session.cwd())
+    const branch = await branchOf($, dir)
+    if (branch && branch !== r.branch) {
+      await update($, rows, (all: Record<string, AgentRow>) => (all[id] ? { ...all, [id]: { ...all[id]!, branch } } : all))
+    }
+  } catch (err) {
+    $.ui.log(`agent-monitor: no se pudo ubicar a ${id}: ${String(err)}`, { to: 'debug' })
+  }
+}
 
 const isLive = (status: string) => {
   const m = moodOf(status)
@@ -150,8 +160,19 @@ export const register: Register = on => {
   // En el escritorio no hay comandos: el panel se abre solo con el primer subagente.
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
+    // El cwd del lanzamiento va al agente por el id que devuelve el motor.
+    const id = (r as { agentId?: string }).agentId
+    if (id && e.cwd) {
+      const cwd = String(e.cwd)
+      const wt = worktreeOf(cwd)
+      await update($, rows, (all: Record<string, AgentRow>) => {
+        const cur = all[id] ?? blank(id)
+        return { ...all, [id]: { ...cur, cwd, ...(wt ? { worktree: wt.name, root: wt.root } : {}) } }
+      })
+    }
     await sync($)
     await openOnce($)
+    if (id) await locate($, id)
     return r
   })
 
@@ -162,10 +183,18 @@ export const register: Register = on => {
     if (id) {
       try {
         const kind = kindOf(String(e.tool), (res as { isReadOnly?: boolean }).isReadOnly)
+        const file = fileOf(String(e.tool), e as unknown as Record<string, unknown>)
+        const wt = worktreeOf(file?.path)
+        let moved = false
         await update($, rows, (all: Record<string, AgentRow>) => {
           const r = all[id] ?? blank(id)
-          return { ...all, [id]: { ...r, tools: [...(r.tools ?? []), kind].slice(-RECENT) } }
+          const upd: AgentRow = { ...r, tools: [...(r.tools ?? []), kind].slice(-RECENT) }
+          if (file) upd.files = addFile(r.files, file)
+          // Un worktree nuevo cambia la raíz y, con ella, la rama.
+          if (wt && wt.root !== r.root) { upd.worktree = wt.name; upd.root = wt.root; moved = true }
+          return { ...all, [id]: upd }
         })
+        if (moved || ((await read($, rows)) as Record<string, AgentRow>)[id]?.branch === undefined) await locate($, id)
       } catch (err) {
         // El panel nunca frena una herramienta; el fallo queda en el log de depuración.
         $.ui.log(`agent-monitor: no se pudo anotar ${String(e.tool)}: ${String(err)}`, { to: 'debug' })
@@ -217,6 +246,11 @@ export const register: Register = on => {
     const isTerm = e.surface === 'terminal'
     const every = Object.values(await read($, rows)) as AgentRow[]
     const t = (await read($, now)) as number
+    // Hora del render: ancla el SMIL del escritorio para que un SVG recreado siga en su fase.
+    let phase = t
+    try { phase = await $.clock.now() } catch { /* sin reloj, la hora del último segundo */ }
+    let sessionDir = ''
+    try { sessionDir = await $.session.cwd() } catch { /* sin directorio, rutas por nombre */ }
     const left = (r: AgentRow) => (r.endedAt === undefined ? null : Math.max(0, Math.ceil((LINGER - (t - r.endedAt)) / 1000)))
     const all = every.filter(r => left(r) !== 0)
     // Sólo el terminal anima cuadro a cuadro; el SVG del escritorio se anima solo.
@@ -244,7 +278,7 @@ export const register: Register = on => {
       }
       if ('Svg' in els) {
         const { Svg } = els as any
-        return <Svg source={svgOf(anim, mood, 104)} alt={`Clawd ${SKINS[role].label}`} width={104} height={68} />
+        return <Svg source={svgOf(anim, mood, 104, phase)} alt={`Clawd ${SKINS[role].label}`} width={104} height={68} />
       }
       return <Text>✳</Text>
     }
@@ -261,6 +295,28 @@ export const register: Register = on => {
           <Text color={color}>{'━'.repeat(full)}</Text>
           <Text dimColor>{'━'.repeat(barW - full)}</Text>
         </Text>
+      )
+    }
+
+    const wide = cols >= 70
+    const sideW = Math.max(22, Math.floor(cols * 0.36))
+
+    // Dónde trabaja (rama, worktree) y los últimos archivos que tocó.
+    const where = (r: AgentRow, dim: boolean) => {
+      const recent = [...(r.files ?? [])].slice(-5).reverse()
+      const bases = [r.root, r.cwd, sessionDir]
+      return (
+        <Box flexDirection="column" width={wide ? sideW : undefined}>
+          {r.branch ? <Text dimColor={dim} wrap="truncate-end">⎇ {r.branch}</Text> : null}
+          {r.worktree ? <Text dimColor wrap="truncate-end">worktree {r.worktree}</Text> : null}
+          {recent.length === 0
+            ? <Text dimColor>sin archivos todavía</Text>
+            : recent.map(f => (
+              <Text key={f.path} dimColor={f.kind === 'read'} bold={f.kind === 'write'} color={f.kind === 'write' ? '#E5B93C' : undefined} wrap="truncate-start">
+                {f.kind === 'write' ? '✎' : '·'} {relPath(f.path, bases)}
+              </Text>
+            ))}
+        </Box>
       )
     }
 
@@ -297,8 +353,8 @@ export const register: Register = on => {
         )}
 
         {sorted.map(r => {
-          const role = roleOf(r)
-          const skin = SKINS[role]
+          const role = skinOf(r.type, r.description)
+          const act = activityOf(r.tools, r.type, r.description)
           const tier = tierOf(r.model)
           const ts = TIER_STYLE[tier]
           const mood = moodOf(r.status)
@@ -316,11 +372,13 @@ export const register: Register = on => {
                     {mood === 'wait' ? '▲ ' : '● '}{LABEL[r.status] ?? r.status}
                     {left(r) !== null && <Text dimColor>  · se oculta en {left(r)} s</Text>}
                   </Text>
-                  {role !== 'base' && (mood === 'work' || mood === 'wait') && <Text color={skin.accent}>◆ {skin.label}</Text>}
+                  {act && (mood === 'work' || mood === 'wait') && <Text color={SKINS[act].accent}>◆ {SKINS[act].label}</Text>}
                   <Text color={ts.color} bold={ts.bold} dimColor={ts.dim}>{ts.mark}{prettyModel(r.model)}</Text>
                 </Box>
+                {wide && where(r, dim)}
               </Box>
               {r.description !== '' && <Text dimColor={dim} wrap="truncate-end">{r.description}</Text>}
+              {!wide && where(r, dim)}
               <Text dimColor={dim}>
                 ↑ {k(r.input + r.cacheRead + r.cacheWrite)}  ↓ {k(r.output)}  · ~US$ {r.usd.toFixed(3)}
               </Text>

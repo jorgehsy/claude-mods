@@ -12,7 +12,7 @@ export const H = 8
 export type Px = [number, number, number] // x, y, color 0xRRGGBB
 export type Frame = Px[]
 export type Mood = 'work' | 'wait' | 'sleep' | 'dead'
-export type Role = 'research' | 'developer' | 'auditor' | 'base'
+export type Role = 'research' | 'developer' | 'auditor' | 'general' | 'base'
 
 export type Animation = {
   fps: number
@@ -51,6 +51,8 @@ export const C = {
   redDim: 0x7a2a26,
   wood: 0x8b5a2b,
   woodSh: 0x6b4420,
+  box: 0x4a5a8c,
+  boxSh: 0x35416b,
 }
 
 const span = (y: number, a: number, b: number, c: number): Px[] =>
@@ -103,6 +105,9 @@ const tint = (mood: Mood, c: number) => (mood === 'dead' ? C.deadSh : c)
 
 /** El signo de espera, arriba a la derecha, en dos cuadros. */
 const BANG: Px[] = [[16, 0, C.yellow], [16, 1, C.yellow]]
+// Todos los fps son 8, 4, 2 o 1: dividen los 8 ticks por segundo del panel y
+// cada cuadro dura lo mismo.
+const WAIT_FPS = 4
 const waitFrames = (pose: Frame, blinkPose: Frame): Frame[] => [
   [...pose, ...BANG],
   [...pose, ...BANG],
@@ -144,7 +149,7 @@ function research(mood: Mood): Animation {
   const still = [...clawd({ eyes: mood === 'wait' ? 'open' : 'closed', arms: 'hold', legs: 0, color }), ...staff, ...limp]
   if (mood === 'wait') {
     const blink = [...clawd({ eyes: 'closed', arms: 'hold', legs: 0, color }), ...staff, ...limp]
-    return { fps: 3, frames: waitFrames(still, blink), shine: bodyShine(color) }
+    return { fps: WAIT_FPS, frames: waitFrames(still, blink), shine: bodyShine(color) }
   }
   return { fps: 1, frames: [still], shine: bodyShine(color) }
 }
@@ -197,8 +202,10 @@ function developer(mood: Mood): Animation {
   if (mood === 'work') {
     return {
       fps: 8,
-      frames: Array.from({ length: 8 }, (_, f) => [
-        ...clawd({ eyes: f === 6 ? 'closed' : 'right', arms: f % 2 ? 'typeL' : 'typeR', legs: 0, color }),
+      // 16 cuadros: el código avanza una línea cada dos (0..7) y da la vuelta
+      // exacta sobre las 8 líneas de CODE; los brazos alternan cada cuadro.
+      frames: Array.from({ length: 16 }, (_, f) => [
+        ...clawd({ eyes: f === 13 ? 'closed' : 'right', arms: f % 2 ? 'typeL' : 'typeR', legs: 0, color }),
         ...phones(f % 2 === 0),
         ...laptop(f >> 1, f % 2 === 0),
       ]),
@@ -208,7 +215,7 @@ function developer(mood: Mood): Animation {
   const still = [...clawd({ eyes: mood === 'wait' ? 'open' : 'closed', arms: 'out', legs: 0, color }), ...phones(false), ...laptop(mood === 'wait' ? 0 : null, false)]
   if (mood === 'wait') {
     const blink = [...clawd({ eyes: 'closed', arms: 'out', legs: 0, color }), ...phones(false), ...laptop(0, false)]
-    return { fps: 3, frames: waitFrames(still, blink), shine: bodyShine(color) }
+    return { fps: WAIT_FPS, frames: waitFrames(still, blink), shine: bodyShine(color) }
   }
   return { fps: 1, frames: [still], shine: bodyShine(color) }
 }
@@ -243,13 +250,15 @@ function auditor(mood: Mood): Animation {
     return px
   }
   if (mood === 'work') {
-    const path = [4, 6, 8, 10, 12, 12, 10, 8, 6, 4]
+    // Ida y vuelta sin repetir los extremos; el portapapeles no se reinicia:
+    // dos marcas fijas y el hallazgo se enciende mientras el barrido está a la derecha.
+    const path = [4, 6, 8, 10, 12, 10, 8, 6]
     return {
-      fps: 10,
-      frames: path.map((at, f) => [
+      fps: 8,
+      frames: path.map(at => [
         ...clawd({ eyes: 'covered', arms: 'out', legs: 0, color }),
         ...visor(at),
-        ...board(Math.min(3, f >> 1), f >= 8),
+        ...board(2, at >= 10),
       ]),
       shine: bodyShine(color),
     }
@@ -257,7 +266,55 @@ function auditor(mood: Mood): Animation {
   const still = [...clawd({ eyes: 'covered', arms: 'out', legs: 0, color }), ...visor(mood === 'wait' ? 8 : null), ...board(mood === 'sleep' ? 3 : 1, false)]
   if (mood === 'wait') {
     const dim = [...clawd({ eyes: 'covered', arms: 'out', legs: 0, color }), ...visor(null), ...board(1, false)]
-    return { fps: 3, frames: waitFrames(still, dim), shine: bodyShine(color) }
+    return { fps: WAIT_FPS, frames: waitFrames(still, dim), shine: bodyShine(color) }
+  }
+  return { fps: 1, frames: [still], shine: bodyShine(color) }
+}
+
+// ── General: llave inglesa que oscila y caja de herramientas al lado ───────────
+// Cinco posturas de la llave, de vertical a horizontal: [mango desde la mano, quijadas].
+const WRENCH: Array<[Array<[number, number]>, Array<[number, number]>]> = [
+  [[[17, 3], [17, 2], [17, 1]], [[16, 0], [18, 0]]],
+  [[[18, 3], [18, 2], [18, 1]], [[17, 0], [19, 0]]],
+  [[[18, 3], [19, 2], [20, 1]], [[21, 0], [21, 2]]],
+  [[[18, 4], [19, 3], [20, 2]], [[21, 1], [21, 3]]],
+  [[[18, 4], [19, 4], [20, 4]], [[21, 3], [21, 5]]],
+]
+// Ida y vuelta sin repetir los extremos: 0,1,2,3,4,3,2,1.
+const SWING = [0, 1, 2, 3, 4, 3, 2, 1]
+
+function general(mood: Mood): Animation {
+  const color = bodyOf(mood)
+  const wrench = (pose: number): Px[] => {
+    const [handle, jaws] = WRENCH[pose]!
+    return [
+      ...handle.map(([x, y]) => [x, y, tint(mood, C.steel)] as Px),
+      ...jaws.map(([x, y]) => [x, y, tint(mood, C.blue)] as Px),
+    ]
+  }
+  const toolbox = (): Px[] => [
+    [23, 3, tint(mood, C.steel)], [24, 3, tint(mood, C.steel)],
+    ...span(4, 22, 25, tint(mood, C.blue)),
+    ...span(5, 22, 25, tint(mood, C.box)),
+    ...span(6, 22, 25, tint(mood, C.boxSh)),
+    [23, 5, tint(mood, C.yellow)],
+  ]
+  if (mood === 'work') {
+    return {
+      fps: 8,
+      frames: SWING.map((pose, f) => [
+        ...clawd({ eyes: f === 7 ? 'closed' : 'right', arms: 'hold', legs: 0, color }),
+        ...toolbox(),
+        ...wrench(pose),
+      ]),
+      shine: bodyShine(color),
+    }
+  }
+  // En reposo la llave descansa horizontal sobre la caja.
+  const still = [...clawd({ eyes: mood === 'wait' ? 'open' : 'closed', arms: 'hold', legs: 0, color }), ...toolbox(), ...wrench(4)]
+  if (mood === 'wait') {
+    const blink = [...clawd({ eyes: 'closed', arms: 'hold', legs: 0, color }), ...toolbox(), ...wrench(4)]
+    return { fps: WAIT_FPS, frames: waitFrames(still, blink), shine: bodyShine(color) }
   }
   return { fps: 1, frames: [still], shine: bodyShine(color) }
 }
@@ -275,7 +332,7 @@ function base(mood: Mood): Animation {
   }
   const still = clawd({ eyes: mood === 'wait' ? 'open' : 'closed', arms: 'out', legs: 0, color })
   if (mood === 'wait') {
-    return { fps: 3, frames: waitFrames(still, clawd({ eyes: 'closed', arms: 'out', legs: 0, color })), shine: bodyShine(color) }
+    return { fps: WAIT_FPS, frames: waitFrames(still, clawd({ eyes: 'closed', arms: 'out', legs: 0, color })), shine: bodyShine(color) }
   }
   return { fps: 1, frames: [still], shine: bodyShine(color) }
 }
@@ -284,6 +341,7 @@ export const SKINS: Record<Role, Skin> = {
   research: { role: 'research', label: 'investigando', accent: '#E5B93C', animate: research },
   developer: { role: 'developer', label: 'programando', accent: '#4EBA65', animate: developer },
   auditor: { role: 'auditor', label: 'auditando', accent: '#E5534B', animate: auditor },
+  general: { role: 'general', label: 'generalista', accent: '#6B8AFD', animate: general },
   base: { role: 'base', label: 'arrancando', accent: '#D97757', animate: base },
 }
 
@@ -310,10 +368,12 @@ export function withTier(anim: Animation, tier: Tier, mood: Mood, surface: 'term
   if (tier === 'low' || tier === 'mid' || mood === 'dead') return anim
   // Una pose quieta se duplica para que las chispas titilen.
   const base = anim.frames.length === 1 ? [anim.frames[0]!, anim.frames[0]!] : anim.frames
+  // Dos cuadros a 2 fps: las chispas titilan cada medio segundo (fps ∈ {8, 4, 2, 1}).
   const fps = anim.frames.length === 1 ? 2 : anim.fps
   const spark = tier === 'top' ? SPARK_TOP : SPARK_HIGH
   const frames = base.map((f, i) => {
-    const on = (Math.floor((i * 4) / base.length) % 2) as 0 | 1
+    // Cuatro tramos por vuelta (uno por cuadro si hay pocos): el último empalma con el primero.
+    const on = (Math.floor(i / Math.max(1, base.length / 4)) % 2) as 0 | 1
     // El halo va debajo: Clawd y sus accesorios lo tapan donde se cruzan.
     const under = tier === 'top' && surface === 'term' ? halo(HALO_TOP[on]!) : []
     return [...under, ...f, ...sparks(spark, on)]
@@ -337,8 +397,12 @@ const toPx = (m: Map<string, number>): Px[] =>
 const rects = (px: Px[], extra = '') =>
   px.map(([x, y, c]) => `<rect x="${x}" y="${y}" width="1.02" height="1.02" fill="${hex(c)}"${extra}/>`).join('')
 
-/** SVG animado (SMIL, cuadros discretos); `px` de ancho. */
-export function svgOf(anim: Animation, mood: Mood, px: number): string {
+/**
+ * SVG animado (SMIL, cuadros discretos); `px` de ancho. Con `phaseMs` (la hora
+ * del render) cada animación lleva `begin` negativo: un SVG recreado continúa
+ * donde iba y el ciclo no vuelve al cuadro 0 a mitad de camino.
+ */
+export function svgOf(anim: Animation, mood: Mood, px: number, phaseMs?: number): string {
   const frames = anim.frames.map(f => toPx(flatten(f)))
   const shared = frames.slice(1).reduce(
     (acc, f) => { const s = new Set(f.map(key)); return acc.filter(p => s.has(key(p))) },
@@ -347,20 +411,25 @@ export function svgOf(anim: Animation, mood: Mood, px: number): string {
   const sharedKeys = new Set(shared.map(key))
   const n = frames.length
   const dur = `${(n / anim.fps).toFixed(3)}s`
+  const begin = (durMs: number) =>
+    phaseMs !== undefined && Number.isFinite(phaseMs)
+      ? ` begin="-${((((phaseMs % durMs) + durMs) % durMs) / 1000).toFixed(3)}s"`
+      : ''
+  const frameBegin = begin(Math.round((n / anim.fps) * 1000))
   const keyTimes = Array.from({ length: n }, (_, i) => (i / n).toFixed(4)).join(';')
   const layers = n === 1 ? '' : frames.map((f, i) => {
     const values = Array.from({ length: n }, (_, j) => (j === i ? 'visible' : 'hidden')).join(';')
-    return `<g visibility="${i === 0 ? 'visible' : 'hidden'}">${rects(f.filter(p => !sharedKeys.has(key(p))))}<animate attributeName="visibility" values="${values}" keyTimes="${keyTimes}" dur="${dur}" calcMode="discrete" repeatCount="indefinite"/></g>`
+    return `<g visibility="${i === 0 ? 'visible' : 'hidden'}">${rects(f.filter(p => !sharedKeys.has(key(p))))}<animate attributeName="visibility" values="${values}" keyTimes="${keyTimes}" dur="${dur}"${frameBegin} calcMode="discrete" repeatCount="indefinite"/></g>`
   }).join('')
   // El brillo sólo cae sobre píxeles del cuerpo que siguen siendo cuerpo.
   const bodyKeys = new Set(shared.filter(([, , c]) => c === C.body || c === C.dead).map(([x, y]) => `${x},${y}`))
   const shine = (anim.shine ?? []).filter(([x, y]) => bodyKeys.has(`${x},${y}`))
   const zz = mood === 'sleep'
-    ? `<text x="15.5" y="3.4" font-size="3.6" font-family="ui-monospace,Menlo,monospace" font-weight="700" fill="#8A8A8A">z<animate attributeName="opacity" values=".15;1;.15" dur="2.4s" repeatCount="indefinite"/><animateTransform attributeName="transform" type="translate" values="0 0;0 -1.2;0 0" dur="2.4s" repeatCount="indefinite"/></text>`
+    ? `<text x="15.5" y="3.4" font-size="3.6" font-family="ui-monospace,Menlo,monospace" font-weight="700" fill="#8A8A8A">z<animate attributeName="opacity" values=".15;1;.15" dur="2.4s"${begin(2400)} repeatCount="indefinite"/><animateTransform attributeName="transform" type="translate" values="0 0;0 -1.2;0 0" dur="2.4s"${begin(2400)} repeatCount="indefinite"/></text>`
     : ''
   const ground = `<ellipse cx="9" cy="14.6" rx="7.5" ry=".7" fill="#000" opacity=".22"/>`
   const glow = anim.glow
-    ? `<defs><radialGradient id="g"><stop offset="0" stop-color="${anim.glow}" stop-opacity=".75"/><stop offset="1" stop-color="${anim.glow}" stop-opacity="0"/></radialGradient></defs><ellipse cx="9" cy="8" rx="11" ry="8.5" fill="url(#g)"><animate attributeName="opacity" values=".45;1;.45" dur="1.8s" repeatCount="indefinite"/></ellipse>`
+    ? `<defs><radialGradient id="g"><stop offset="0" stop-color="${anim.glow}" stop-opacity=".75"/><stop offset="1" stop-color="${anim.glow}" stop-opacity="0"/></radialGradient></defs><ellipse cx="9" cy="8" rx="11" ry="8.5" fill="url(#g)"><animate attributeName="opacity" values=".45;1;.45" dur="1.8s"${begin(1800)} repeatCount="indefinite"/></ellipse>`
     : ''
   const h = Math.round((px * (H * 2 + 1)) / W)
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -1 ${W} ${H * 2 + 1}" width="${px}" height="${h}" shape-rendering="crispEdges">${glow}${ground}<g transform="scale(1 2)">${anim.glow ? `<rect x="3" y="2" width="12" height="4" fill="${hex(C.ink)}"/>` : ''}${rects(shared)}${rects(shine, ' opacity=".55"')}${layers}</g>${zz}</svg>`

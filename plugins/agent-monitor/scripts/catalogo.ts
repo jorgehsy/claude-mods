@@ -41,7 +41,7 @@ for (const skin of Object.values(SKINS)) {
 }
 
 const TIERS: Array<[Tier, string]> = [['low', 'Haiku · barato'], ['mid', 'Sonnet'], ['high', 'Opus · caro'], ['top', 'Fable · el más caro']]
-for (const role of ['research', 'developer', 'auditor'] as const) {
+for (const role of ['research', 'developer', 'auditor', 'general'] as const) {
   rows += `<section><h2>Niveles de modelo<small> · ${role}, trabajando</small></h2><div class="grid">`
   for (const [tier, label] of TIERS) {
     const id = `tier-${role}-${tier}`
