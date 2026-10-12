@@ -22,6 +22,7 @@ claude plugin install <mod>@jorge-mods --scope user
 | --- | --- |
 | [agent-monitor](plugins/agent-monitor) | Panel en vivo de subagentes con un Clawd por agente que cambia de skin según lo que hace (research, developer, auditor) y destaca los modelos caros (Opus, Fable): estado, tokens, costo y contexto. |
 | [github-panel](plugins/github-panel) | Panel en vivo de GitHub con los issues y PR abiertos del repo: tomar un issue, mergear un PR y reintentar checks fallidos. |
+| [devtools](plugins/devtools) | Barra encima del prompt: a la izquierda el contexto usado, el modelo, el effort y el output style; a la derecha el botón `devtools` con accesos a los paneles de Agentes y GitHub. |
 
 ## Actualizar
 

@@ -1,0 +1,9 @@
+{
+  "name": "devtools",
+  "version": "0.2.0",
+  "description": "Botón devtools encima del prompt que abre una tarjeta con accesos a los paneles de los mods",
+  "author": { "name": "Jorge Simoes", "url": "https://github.com/jorgehsy" },
+  "repository": "https://github.com/jorgehsy/claude-mods",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

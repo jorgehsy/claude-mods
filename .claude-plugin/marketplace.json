@@ -1,6 +1,9 @@
 {
   "name": "jorge-mods",
-  "owner": { "name": "Jorge Simoes", "url": "https://github.com/jorgehsy" },
+  "owner": {
+    "name": "Jorge Simoes",
+    "url": "https://github.com/jorgehsy"
+  },
   "description": "Mods de Claude Code de Jorge Simoes",
   "plugins": [
     {
@@ -12,6 +15,11 @@
       "name": "github-panel",
       "source": "./plugins/github-panel",
       "description": "Panel en vivo de GitHub: issues y PR abiertos del repo, con Tomarlo, Merge y Reintentar checks"
+    },
+    {
+      "name": "devtools",
+      "source": "./plugins/devtools",
+      "description": "Botón devtools encima del prompt con accesos a los paneles de Agentes y GitHub"
     }
   ]
 }
