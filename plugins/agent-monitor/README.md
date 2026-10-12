@@ -72,8 +72,8 @@ Desde ahí carga en todas tus sesiones, en la terminal y en la app de escritorio
 
 ## Usar
 
-- **Terminal**: escribe `/agent-monitor`. Con una ventana de 144 columnas o más, el panel se abre solo con el primer subagente.
-- **App de escritorio**: el panel se abre solo cuando arranca el primer subagente.
+- **Terminal**: escribe `/agent-monitor`. Con una ventana de 144 columnas o más, el panel se abre solo con cada subagente nuevo, aunque lo hayas cerrado.
+- **App de escritorio**: el panel está oculto al iniciar y se abre solo cada vez que arranca un subagente nuevo.
 
 ## Actualizar
 

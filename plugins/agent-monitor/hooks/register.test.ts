@@ -55,3 +55,20 @@ test('un agente que el motor deja de listar no se queda trabajando', async ($, o
   expect(await ui.find({ type: 'Text', text: /terminó/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('el panel no abre al iniciar y abre con cada agente nuevo', async ($, on) => {
+  const opens: string[] = []
+  on('ui.open', async (_$: any, e: any) => { opens.push(e.id); return { value: { isPlaced: true } } as any })
+  on('command.register', async () => ({ value: undefined }) as any)
+  on('clock.every', async () => ({ value: undefined }) as any)
+  on('clock.now', async () => ({ value: 1000 }) as any)
+  on('agent.list', async () => ({ value: [] }) as any)
+  on('session.start', async () => ({ cwd: '/r' }) as any)
+  let n = 0
+  on('agent.spawn', async () => ({ model: 'claude-haiku-5-5', agentId: `a${++n}` }) as any)
+  await $.session.start({ cwd: '/r', surface: 'terminal', isInteractive: true } as any)
+  expect(opens).toEqual([])
+  await $.agent.spawn({ type: 'general-purpose', prompt: 'x', description: 'x' } as any)
+  await $.agent.spawn({ type: 'general-purpose', prompt: 'y', description: 'y' } as any)
+  expect(opens).toEqual(['agent-monitor', 'agent-monitor'])
+})

@@ -28,6 +28,6 @@ export type AgentRow = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'agent-monitor': { rows: Record<string, AgentRow>; frame: number; opened: boolean; now: number }
+    'agent-monitor': { rows: Record<string, AgentRow>; frame: number; now: number }
   }
 }

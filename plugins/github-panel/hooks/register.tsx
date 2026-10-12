@@ -124,11 +124,12 @@ const retry = ($: EngineInterface, p: Pr) =>
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'github-panel', description: 'Abre el panel de issues y PR de GitHub' })
-    // Detectar el repo y el primer fetch no frenan el arranque de la sesión.
+    // Abre en cuanto arranca la sesión; detectar el repo y el primer fetch no lo frenan.
     void (async () => {
       try {
+        await $.ui.open({ id: PANE, title: title('') })
         const name = await detectRepo($)
-        await $.ui.open({ id: PANE, title: title(name) })
+        if (name) await $.ui.open({ id: PANE, title: title(name) })
         await refresh($)
       } catch (err) {
         $.ui.log(`github-panel: no arrancó: ${String(err)}`, { to: 'debug' })

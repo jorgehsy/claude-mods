@@ -9,7 +9,6 @@ import { skinOf, activityOf, kindOf, fileOf, addFile, worktreeOf, relPath, RECEN
 const PANE = 'agent-monitor'
 const rows = atom({ plugin: 'agent-monitor', key: 'rows' } as const, {})
 const frame = atom({ plugin: 'agent-monitor', key: 'frame' } as const, 0)
-const opened = atom({ plugin: 'agent-monitor', key: 'opened' } as const, false)
 // La hora del panel, al segundo: mueve la cuenta regresiva de los que terminaron.
 const now = atom({ plugin: 'agent-monitor', key: 'now' } as const, 0)
 
@@ -107,9 +106,8 @@ async function sync($: EngineInterface) {
   })
 }
 
-async function openOnce($: EngineInterface) {
-  if (await read($, opened)) return
-  await update($, opened, () => true)
+/** Oculto por defecto: cada agente nuevo lo abre, aunque la persona lo haya cerrado antes. */
+async function openPane($: EngineInterface) {
   await $.ui.open({ id: PANE, title: 'Agentes' })
 }
 
@@ -157,12 +155,11 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'agent-monitor' }, async $ => {
-    await update($, opened, () => true)
-    await $.ui.open({ id: PANE, title: 'Agentes' })
+    await openPane($)
     return { text: 'Panel de agentes abierto.' }
   })
 
-  // En el escritorio no hay comandos: el panel se abre solo con el primer subagente.
+  // El panel no se abre al iniciar la sesión: lo abre cada subagente nuevo.
   on('agent.spawn', async ($, e, next) => {
     const r = await next(e)
     // El cwd del lanzamiento va al agente por el id que devuelve el motor.
@@ -176,7 +173,7 @@ export const register: Register = on => {
       })
     }
     await sync($)
-    await openOnce($)
+    await openPane($)
     if (id) await locate($, id)
     return r
   })
