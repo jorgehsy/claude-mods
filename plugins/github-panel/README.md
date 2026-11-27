@@ -21,6 +21,10 @@ En Claude Code 2.1.275 o posterior también sirve: `/plugin install github-panel
 
 `#número` y título (clic abre GitHub), etiquetas con su color, asignado (`@login` o «sin asignar»), sub-issues `hechos/total` y el PR que lo cierra (o «sin PR»).
 
+Los issues se muestran como árbol: cada sub-issue va indentado bajo su padre, y entre hermanos el issue bloqueado cuelga del que lo bloquea. Si el padre no está entre los abiertos, el issue queda como raíz.
+
+Las dependencias («blocked by» de GitHub) se recorren en cadena hasta 5 niveles: «⛔ bloqueado por ← #5 … ← #3 …». Los bloqueadores cerrados salen tenues con `✓` y cortan la cadena; un ciclo se marca con `↺ ciclo`. Si el issue bloquea a otros, se ve «→ bloquea #N».
+
 - **Tomarlo** (sólo sin asignado): `gh issue edit N --add-assignee @me`.
 
 ## Pull requests

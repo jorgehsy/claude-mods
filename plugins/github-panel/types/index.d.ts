@@ -10,7 +10,15 @@ export type Issue = {
   subDone: number
   /** Número del PR que lo cierra, si hay uno. */
   prNumber?: number
+  /** Issue padre (sub-issues), si tiene. */
+  parent?: number
+  /** Issues que lo bloquean, abiertos o cerrados. */
+  blockedBy: Dep[]
+  /** Números de los issues que este bloquea. */
+  blocking: number[]
 }
+
+export type Dep = { number: number; title: string; closed: boolean }
 
 export type Checks = 'ok' | 'failed' | 'running' | 'none'
 export type Mergeable = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'

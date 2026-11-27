@@ -2,9 +2,10 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Issue, Pr, RepoRef, Snapshot } from '../types'
+import type { TreeRow } from './github.ts'
 import {
   QUERY, parseRepo, parseGraphql, ghError, canTake, canMerge, canRetry,
-  C, progressBar, checkStatus, mergeStatus, prIsBad, ago, labelFg, labelBg,
+  C, progressBar, issueTree, blockerChain, checkStatus, mergeStatus, prIsBad, ago, labelFg, labelBg,
 } from './github.ts'
 
 const PANE = 'github-panel'
@@ -239,9 +240,9 @@ export const register: Register = on => {
         </Box>
       )
     }
-    const card = (id: string, bad: boolean, kids: any) => (
+    const card = (id: string, bad: boolean, kids: any, indent = 0) => (
       <Box
-        key={id} flexDirection="row" gap={1} paddingX={1} marginBottom={1}
+        key={id} flexDirection="row" gap={1} paddingX={1} marginLeft={indent}
         borderStyle="round" borderColor={bad ? C.borderBad : C.border}
         hover={{ borderColor: bad ? C.bad : C.borderHover }}
       >
@@ -252,7 +253,24 @@ export const register: Register = on => {
       <Text color={s.color} dimColor={s.dim}>{s.glyph ? `${s.glyph} ${s.text}` : s.text}</Text>
     )
 
-    const issueRow = (i: Issue) => {
+    const deps = (i: Issue) => {
+      const chain = blockerChain(snap?.issues ?? [], i.number)
+      if (chain.length === 0 && i.blocking.length === 0) return null
+      const open = chain.some(d => !d.closed)
+      return (
+        <Box key="deps" flexDirection="column">
+          {chain.length > 0 && <Text color={open ? C.bad : C.muted}>{open ? '⛔ bloqueado por' : '✓ bloqueos resueltos'}</Text>}
+          {chain.map((d, k) => (
+            <Text key={`dep-${k}`} wrap="truncate-end" color={d.cycle ? C.warn : d.closed ? C.muted : undefined} dimColor={d.closed}>
+              {`${'   '.repeat(d.depth)} ← ${d.closed ? '✓ ' : ''}#${d.number} ${d.title}${d.cycle ? ' ↺ ciclo' : ''}`}
+            </Text>
+          ))}
+          {i.blocking.length > 0 && <Text color={C.warn}>{`→ bloquea ${i.blocking.map(n => `#${n}`).join(', ')}`}</Text>}
+        </Box>
+      )
+    }
+
+    const issueRow = ({ issue: i, depth }: TreeRow) => {
       const bar = progressBar(i.subDone, i.subTotal)
       const pinned = working[`take-${i.number}`] === true || !!msgs[`issue-${i.number}`]
       return card(`issue-${i.number}`, false, [
@@ -264,10 +282,11 @@ export const register: Register = on => {
             {bar.label !== '' && <Text><Text color={C.ok}>{bar.filled}</Text><Text dimColor>{bar.empty}</Text> {bar.label}</Text>}
             {i.prNumber !== undefined ? <Text>⇄ #{i.prNumber}</Text> : <Text dimColor>sin PR</Text>}
           </Box>
+          {deps(i)}
           {noteLine(`issue-${i.number}`)}
         </Box>,
         actions(`issue-${i.number}`, pinned, [canTake(i) && btn(`take-${i.number}`, 'Tomarlo', () => take($, i))]),
-      ])
+      ], depth * 4)
     }
 
     const prRow = (p: Pr) => {
@@ -329,7 +348,7 @@ export const register: Register = on => {
         )}
         {err !== '' && <Text color={C.bad} wrap="truncate-end">{err}</Text>}
         {snap === null && err === '' && <Text dimColor>Leyendo GitHub…</Text>}
-        {snap !== null && section('issues', 'Issues', snap.issues.length, <Box flexDirection="column">{snap.issues.map(issueRow)}</Box>, 'Sin issues abiertos')}
+        {snap !== null && section('issues', 'Issues', snap.issues.length, <Box flexDirection="column">{issueTree(snap.issues).map(issueRow)}</Box>, 'Sin issues abiertos')}
         {snap !== null && section('prs', 'Pull requests', snap.prs.length, <Box flexDirection="column">{snap.prs.map(prRow)}</Box>, 'Sin PR abiertos')}
       </Box>
     )
