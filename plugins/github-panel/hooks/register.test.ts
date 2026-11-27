@@ -61,3 +61,35 @@ test('Merge pide confirmación y Sí corre gh pr merge --squash --delete-branch'
   expect(calls.some(a => a.join(' ').includes('pr merge 8 --squash --delete-branch'))).toBe(true)
   await ui.unmount()
 })
+
+const TREE = JSON.stringify({ data: { repository: {
+  issues: { nodes: [
+    { number: 1, title: 'Mapa', url: 'https://x/1', subIssuesSummary: { total: 2, completed: 0 } },
+    { number: 5, title: 'Impresoras', url: 'https://x/5', parent: { number: 1 }, blocking: { nodes: [{ number: 9 }] },
+      blockedBy: { nodes: [{ number: 3, title: 'Red local', state: 'OPEN' }] } },
+    { number: 9, title: 'Cola', url: 'https://x/9', parent: { number: 1 },
+      blockedBy: { nodes: [{ number: 5, title: 'Impresoras', state: 'OPEN' }] } },
+    { number: 3, title: 'Red local', url: 'https://x/3', blockedBy: { nodes: [{ number: 2, title: 'Cableado', state: 'CLOSED' }] } },
+  ] },
+  pullRequests: { nodes: [] },
+} } })
+
+test('los issues se dibujan en árbol y la cadena de bloqueos baja varios niveles', async ($, on) => {
+  on('process.run', async (_$: any, e: any) => ({ value: ok(e.argv.includes('graphql') ? TREE : '{"nameWithOwner":"o/r"}') }) as any)
+  on('session.start', async () => ({ cwd: '/r' }) as any)
+  on('clock.every', async () => ({ value: () => {} }) as any)
+  on('command.register', async () => ({ value: undefined }) as any)
+  on('ui.open', async () => ({ value: undefined }) as any)
+  on('clock.now', async () => ({ value: 5000 }) as any)
+  await $.session.start({ cwd: '/r', surface: 'terminal', isInteractive: true })
+  const ui = await mount($)
+  const tree = JSON.stringify(await ui.drawn())
+  for (const s of ['bloqueado por', '#5 Impresoras', '#3 Red local', '#2 Cableado', 'bloquea #9']) {
+    expect(tree.includes(s)).toBe(true)
+  }
+  // #9 ← #5 ← #3 ← #2: el orden de dibujo baja por la cadena.
+  expect(tree.indexOf('https://x/1') < tree.indexOf('https://x/5')).toBe(true)
+  // #9 cuelga de #5, que lo bloquea, en vez de ser su hermano.
+  expect(tree.indexOf('https://x/5') < tree.indexOf('https://x/9')).toBe(true)
+  await ui.unmount()
+})
