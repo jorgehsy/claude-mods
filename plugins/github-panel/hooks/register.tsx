@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Issue, Pr, Snapshot } from '../types'
+import type { Issue, Pr, RepoRef, Snapshot } from '../types'
 import {
   QUERY, parseRepo, parseGraphql, ghError, canTake, canMerge, canRetry,
   C, progressBar, checkStatus, mergeStatus, prIsBad, ago, labelFg, labelBg,
@@ -11,6 +11,8 @@ const PANE = 'github-panel'
 const REFRESH_MS = 30_000
 
 const repo = atom({ plugin: 'github-panel', key: 'repo' } as const, '')
+const dir = atom({ plugin: 'github-panel', key: 'dir' } as const, '')
+const repos = atom({ plugin: 'github-panel', key: 'repos' } as const, [])
 const data = atom({ plugin: 'github-panel', key: 'data' } as const, null)
 const error = atom({ plugin: 'github-panel', key: 'error' } as const, '')
 const fetchedAt = atom({ plugin: 'github-panel', key: 'fetchedAt' } as const, 0)
@@ -23,33 +25,75 @@ const notes = atom({ plugin: 'github-panel', key: 'notes' } as const, {})
 
 const title = (name: string) => (name ? name : 'GitHub')
 
-/** Corre `gh` en el directorio de la sesión; nunca rechaza. */
-async function gh($: EngineInterface, args: string[], timeoutMs = 20_000) {
+/** Corre `gh` en `cwd`, o en la carpeta del repo elegido; nunca rechaza. */
+async function gh($: EngineInterface, args: string[], timeoutMs = 20_000, cwd?: string) {
   try {
-    const res = await $.process.run(['gh', ...args], { timeoutMs })
+    const where = cwd ?? ((await read($, dir)) as string)
+    const res = await $.process.run(['gh', ...args], where ? { timeoutMs, cwd: where } : { timeoutMs })
     return { ok: res.exitCode === 0, out: res.stdout, err: res.stderr.trim() }
   } catch (err) {
     return { ok: false, out: '', err: String(err) }
   }
 }
 
+async function repoAt($: EngineInterface, cwd: string) {
+  const res = await gh($, ['repo', 'view', '--json', 'nameWithOwner'], 10_000, cwd)
+  return { name: res.ok ? parseRepo(res.out) : null, err: res.err }
+}
+
+/** Carpetas hijas que pueden ser un repo: sin las ocultas ni las de worktrees. */
+const candidate = (n: string) => !n.startsWith('.') && !n.endsWith('-worktrees') && n !== 'node_modules'
+
+/**
+ * La carpeta de la sesión si es un repo; si no, cada carpeta hija que lo sea.
+ * Conserva la elección previa si sigue entre los detectados.
+ */
 async function detectRepo($: EngineInterface): Promise<string> {
-  const res = await gh($, ['repo', 'view', '--json', 'nameWithOwner'], 10_000)
-  const name = res.ok ? parseRepo(res.out) : null
-  if (name) {
-    await update($, repo, () => name)
-    await update($, error, () => '')
-    return name
+  const here = await repoAt($, '')
+  let found: RepoRef[] = here.name ? [{ name: here.name, dir: '' }] : []
+  if (found.length === 0) {
+    let entries: { name: string; kind: string }[] = []
+    try { entries = await $.fs.list() } catch { /* sin permiso para listar: sin hijos */ }
+    const dirs = entries.filter(e => e.kind === 'dir' && candidate(e.name)).map(e => e.name)
+    // Rutas absolutas: la carpeta de la sesión puede cambiar después (un `cd`).
+    const base = (await $.session.cwd()).replace(/\/+$/, '')
+    const named = await Promise.all(dirs.map(async d => {
+      const abs = `${base}/${d}`
+      return { name: (await repoAt($, abs)).name, dir: abs }
+    }))
+    found = named.filter((r): r is RepoRef => !!r.name)
   }
-  await update($, error, () => ghError(res.err, 'No se detectó un repositorio de GitHub'))
-  return ''
+  await update($, repos, () => found)
+  if (found.length === 0) {
+    await update($, error, () => ghError(here.err, 'No se detectó un repositorio de GitHub'))
+    return ''
+  }
+  const current = (await read($, repo)) as string
+  const pick = found.find(r => r.name === current) ?? found[0]!
+  await update($, repo, () => pick.name)
+  await update($, dir, () => pick.dir)
+  await update($, error, () => '')
+  return pick.name
+}
+
+/** Cambia el repo que muestra el panel y lo vuelve a leer. */
+async function choose($: EngineInterface, r: RepoRef) {
+  await update($, repo, () => r.name)
+  await update($, dir, () => r.dir)
+  await update($, data, () => null)
+  await update($, notes, () => ({}))
+  await update($, confirm, () => null)
+  await $.ui.open({ id: PANE, title: title(r.name) })
+  await refresh($, true)
 }
 
 // Un solo fetch a la vez.
 let fetching = false
+// Al cambiar de repo con un fetch en curso, se repite al terminar.
+let again = false
 
-async function refresh($: EngineInterface) {
-  if (fetching) return
+async function refresh($: EngineInterface, force = false): Promise<void> {
+  if (fetching) { if (force) again = true; return }
   fetching = true
   await update($, refreshing, () => true)
   try {
@@ -58,6 +102,8 @@ async function refresh($: EngineInterface) {
     if (name) {
       const [owner, rname] = name.split('/')
       const res = await gh($, ['api', 'graphql', '-F', `owner=${owner}`, '-F', `name=${rname}`, '-f', `query=${QUERY}`])
+      // Si en el medio se eligió otro repo, esta respuesta ya no vale.
+      if ((await read($, repo)) !== name) return
       if (res.ok) {
         try {
           const snap = parseGraphql(res.out)
@@ -79,6 +125,7 @@ async function refresh($: EngineInterface) {
     fetching = false
     await update($, refreshing, () => false)
   }
+  if (again) { again = false; await refresh($) }
 }
 
 const setNote = ($: EngineInterface, key: string, text: string) =>
@@ -155,6 +202,7 @@ export const register: Register = on => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button, Link } = els as any
     const name = (await read($, repo)) as string
+    const found = (await read($, repos)) as RepoRef[]
     const snap = (await read($, data)) as Snapshot | null
     const err = (await read($, error)) as string
     const t = (await read($, now)) as number
@@ -269,6 +317,16 @@ export const register: Register = on => {
           </Box>
           <Button key="refresh" plain label={isRefreshing ? '…' : '↻'} onPress={() => { void refresh($) }} />
         </Box>
+        {found.length > 1 && (
+          <Box flexDirection="row" gap={1} flexWrap="wrap">
+            {found.map(r => (
+              <Button
+                key={`repo-${r.name}`} label={r.dir ? r.dir.split('/').pop()! : r.name} variant={r.name === name ? 'primary' : undefined}
+                onPress={() => { if (r.name !== name) void choose($, r) }}
+              />
+            ))}
+          </Box>
+        )}
         {err !== '' && <Text color={C.bad} wrap="truncate-end">{err}</Text>}
         {snap === null && err === '' && <Text dimColor>Leyendo GitHub…</Text>}
         {snap !== null && section('issues', 'Issues', snap.issues.length, <Box flexDirection="column">{snap.issues.map(issueRow)}</Box>, 'Sin issues abiertos')}

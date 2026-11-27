@@ -2,7 +2,11 @@
 
 Panel en vivo para Claude Code con los issues y los pull requests abiertos del repositorio en que corre la sesión. Se abre solo al iniciar, o con `/github-panel`. Necesita la CLI [`gh`](https://cli.github.com) con sesión iniciada (`gh auth login`).
 
-El título es el repo (`owner/repo`, de `gh repo view`). Arriba ves «hace N s» desde el último refresco y un botón `↻` para refrescar ya; se actualiza solo cada 30 s, sin llamadas encimadas. Cada sección se pliega al hacer clic en su encabezado.
+El título es el repo (`owner/repo`, de `gh repo view`).
+
+### Varios repos en una carpeta
+
+Si la carpeta de la sesión no es un repo pero contiene varios (por ejemplo `web/` y `mobile/` en un workspace), el panel revisa sus carpetas hijas y muestra arriba un botón por cada repo de GitHub que encuentra para cambiar entre ellos. Salta las carpetas ocultas, `node_modules` y las que terminan en `-worktrees`. Guarda la ruta absoluta del repo elegido, así que un `cd` posterior no lo cambia. En un repo normal no aparece el selector. Arriba ves «hace N s» desde el último refresco y un botón `↻` para refrescar ya; se actualiza solo cada 30 s, sin llamadas encimadas. Cada sección se pliega al hacer clic en su encabezado.
 
 ## Instalar
 

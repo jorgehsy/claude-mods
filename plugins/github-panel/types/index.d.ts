@@ -26,6 +26,8 @@ export type Pr = {
   checks: Checks
 }
 
+export type RepoRef = { name: string; dir: string }
+
 export type Snapshot = { issues: Issue[]; prs: Pr[] }
 
 declare module 'claude-code' {
@@ -33,6 +35,10 @@ declare module 'claude-code' {
     'github-panel': {
       /** owner/repo del directorio de la sesión; vacío si no se detectó. */
       repo: string
+      /** Carpeta donde corre `gh` para el repo elegido; vacío = la de la sesión. */
+      dir: string
+      /** Repos detectados: la carpeta de la sesión, o si no es un repo, sus carpetas hijas. */
+      repos: RepoRef[]
       data: Snapshot | null
       /** Mensaje de una línea cuando no se pudo leer GitHub. */
       error: string
