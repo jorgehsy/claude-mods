@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { progressBar, checkStatus, mergeStatus, prIsBad, parseRepo, parseGraphql, canMerge, canRetry, canTake, checksOf, ago, ghError, labelFg } from './github.ts'
+import { issueTree, blockerChain, progressBar, checkStatus, mergeStatus, prIsBad, parseRepo, parseGraphql, canMerge, canRetry, canTake, checksOf, ago, ghError, labelFg } from './github.ts'
 import type { Pr, Issue } from '../types'
 
 const pr = (o: Partial<Pr> = {}): Pr => ({
@@ -32,7 +32,7 @@ test('parseGraphql convierte issues y PR', async () => {
   } } }))
   expect(out.issues[0]).toEqual({
     number: 7, title: 'Falla', url: 'https://x/7', labels: [{ name: 'bug', color: 'd73a4a' }],
-    assignees: [], subTotal: 3, subDone: 1, prNumber: 9,
+    assignees: [], subTotal: 3, subDone: 1, prNumber: 9, blockedBy: [], blocking: [], parent: undefined,
   })
   expect(out.prs[0]).toMatchObject({ number: 9, isDraft: true, head: 'fix', mergeable: 'CONFLICTING', checks: 'failed' })
   expect(out.prs[1]).toMatchObject({ mergeable: 'UNKNOWN', checks: 'none' })
@@ -102,4 +102,76 @@ test('prIsBad marca checks fallidos o conflictos', async () => {
   expect(prIsBad(pr())).toBe(false)
   expect(prIsBad(pr({ checks: 'failed' }))).toBe(true)
   expect(prIsBad(pr({ mergeable: 'CONFLICTING' }))).toBe(true)
+})
+
+const iss = (o: Partial<Issue> & { number: number }): Issue => ({
+  title: `t${o.number}`, url: `u${o.number}`, labels: [], assignees: [], subTotal: 0, subDone: 0, blockedBy: [], blocking: [], ...o,
+})
+
+test('parseGraphql lee parent, blockedBy y blocking', async () => {
+  const out = parseGraphql(JSON.stringify({ data: { repository: {
+    issues: { nodes: [{
+      number: 9, title: 'Cola', url: 'u9', parent: { number: 1 },
+      blockedBy: { nodes: [{ number: 5, title: 'Impresoras', state: 'OPEN' }, { number: 2, title: 'Viejo', state: 'CLOSED' }] },
+      blocking: { nodes: [{ number: 12 }] },
+    }] },
+    pullRequests: { nodes: [] },
+  } } }))
+  expect(out.issues[0]).toMatchObject({
+    parent: 1, blocking: [12],
+    blockedBy: [{ number: 5, title: 'Impresoras', closed: false }, { number: 2, title: 'Viejo', closed: true }],
+  })
+})
+
+test('issueTree anida por parent con prefijos de árbol; huérfanos quedan como raíz', async () => {
+  const rows = issueTree([
+    iss({ number: 1 }), iss({ number: 5, parent: 1 }), iss({ number: 9, parent: 1 }),
+    iss({ number: 7, parent: 5 }), iss({ number: 18 }), iss({ number: 20, parent: 99 }),
+  ])
+  expect(rows.map(r => `${r.prefix}${r.issue.number}`)).toEqual([
+    '1', '├─ 5', '│  └─ 7', '└─ 9', '18', '20',
+  ])
+  expect(rows.map(r => r.depth)).toEqual([0, 1, 2, 1, 0, 0])
+})
+
+test('issueTree no se cuelga con un ciclo de parent', async () => {
+  const rows = issueTree([iss({ number: 1, parent: 2 }), iss({ number: 2, parent: 1 })])
+  expect(rows.map(r => r.issue.number).sort()).toEqual([1, 2])
+})
+
+test('blockerChain recorre bloqueos en profundidad, marca cerrados y corta ciclos', async () => {
+  const all = [
+    iss({ number: 9, blockedBy: [{ number: 5, title: 'Imp', closed: false }] }),
+    iss({ number: 5, blockedBy: [{ number: 3, title: 'Red', closed: false }, { number: 2, title: 'Viejo', closed: true }] }),
+    iss({ number: 3, blockedBy: [{ number: 9, title: 'Cola', closed: false }] }),
+  ]
+  expect(blockerChain(all, 9).map(d => `${d.depth}:${d.number}:${d.closed ? 'c' : 'o'}${d.cycle ? ':cycle' : ''}`)).toEqual([
+    '0:5:o', '1:3:o', '2:9:o:cycle', '1:2:c',
+  ])
+  expect(blockerChain(all, 9, 1).map(d => d.number)).toEqual([5])
+  expect(blockerChain([iss({ number: 4 })], 4)).toEqual([])
+})
+
+test('issueTree cuelga al bloqueado de su bloqueador cuando comparten padre', async () => {
+  const rows = issueTree([
+    iss({ number: 1 }),
+    iss({ number: 9, parent: 1, blockedBy: [{ number: 5, title: 'Imp', closed: false }] }),
+    iss({ number: 5, parent: 1 }),
+    iss({ number: 16, parent: 1 }),
+    // Bloqueador de otra rama: no lo mueve.
+    iss({ number: 30, blockedBy: [{ number: 16, title: 'x', closed: false }] }),
+    // Bloqueador cerrado: no lo mueve.
+    iss({ number: 31, parent: 1, blockedBy: [{ number: 2, title: 'y', closed: true }] }),
+  ])
+  expect(rows.map(r => `${r.prefix}${r.issue.number}${r.blocked ? '!' : ''}`)).toEqual([
+    '1', '├─ 5', '│  └─ 9!', '├─ 16', '└─ 31', '30',
+  ])
+})
+
+test('issueTree con bloqueos cruzados no pierde issues', async () => {
+  const rows = issueTree([
+    iss({ number: 1, blockedBy: [{ number: 2, title: '', closed: false }] }),
+    iss({ number: 2, blockedBy: [{ number: 1, title: '', closed: false }] }),
+  ])
+  expect(rows.map(r => r.issue.number).sort()).toEqual([1, 2])
 })

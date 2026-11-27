@@ -1,8 +1,8 @@
-import type { Checks, Issue, Mergeable, Pr, Snapshot } from '../types'
+import type { Checks, Dep, Issue, Mergeable, Pr, Snapshot } from '../types'
 
 /** La consulta: una sola llamada trae issues y PR. */
 export const QUERY = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){
-issues(states:OPEN,first:50,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number title url labels(first:10){nodes{name color}} assignees(first:5){nodes{login}} subIssuesSummary{total completed} closedByPullRequestsReferences(first:3){nodes{number url}}}}
+issues(states:OPEN,first:50,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number title url labels(first:10){nodes{name color}} assignees(first:5){nodes{login}} subIssuesSummary{total completed} closedByPullRequestsReferences(first:3){nodes{number url}} parent{number} blockedBy(first:10){nodes{number title state}} blocking(first:10){nodes{number}}}}
 pullRequests(states:OPEN,first:30,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number title url isDraft headRefName baseRefName mergeable commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}}}`
 
 type Nodes<T> = { nodes?: (T | null)[] | null } | null | undefined
@@ -47,6 +47,9 @@ type RawIssue = {
   assignees?: Nodes<{ login: string }>
   subIssuesSummary?: { total?: number; completed?: number } | null
   closedByPullRequestsReferences?: Nodes<{ number: number }>
+  parent?: { number: number } | null
+  blockedBy?: Nodes<{ number: number; title: string; state?: string }>
+  blocking?: Nodes<{ number: number }>
 }
 type RawPr = {
   number: number; title: string; url: string; isDraft?: boolean
@@ -71,6 +74,9 @@ export function parseGraphql(stdout: string): Snapshot {
     subTotal: i.subIssuesSummary?.total ?? 0,
     subDone: i.subIssuesSummary?.completed ?? 0,
     prNumber: list(i.closedByPullRequestsReferences)[0]?.number,
+    parent: i.parent?.number,
+    blockedBy: list(i.blockedBy).map(d => ({ number: d.number, title: d.title, closed: d.state === 'CLOSED' })),
+    blocking: list(i.blocking).map(d => d.number),
   }))
   const prs: Pr[] = list(repo.pullRequests).map(p => ({
     number: p.number,
@@ -83,6 +89,63 @@ export function parseGraphql(stdout: string): Snapshot {
     checks: checksOf(list(p.commits)[0]?.commit?.statusCheckRollup?.state),
   }))
   return { issues, prs }
+}
+
+// ── Árbol y dependencias ─────────────────────────────────────────────────────
+
+export type TreeRow = { issue: Issue; depth: number; prefix: string; blocked?: boolean }
+
+/**
+ * Issues en orden de árbol, con el prefijo `├─ │  └─` de cada fila.
+ * Cuelga de su padre (sub-issues); y entre hermanos, el bloqueado cuelga de su
+ * primer bloqueador abierto (`blocked`). Un issue cuyo padre no está en la lista
+ * queda como raíz; lo que un ciclo deja suelto también.
+ */
+export function issueTree(issues: Issue[]): TreeRow[] {
+  const byNum = new Map(issues.map(i => [i.number, i]))
+  const parentOf = (i: Issue) => (i.parent !== undefined && byNum.has(i.parent) && i.parent !== i.number ? i.parent : undefined)
+  const kids = new Map<number, Issue[]>()
+  const via = new Set<number>()
+  const roots: Issue[] = []
+  for (const i of issues) {
+    const p = parentOf(i)
+    const blocker = i.blockedBy.find(d => !d.closed && d.number !== i.number && byNum.has(d.number) && parentOf(byNum.get(d.number)!) === p)
+    const up = blocker?.number ?? p
+    if (blocker) via.add(i.number)
+    if (up !== undefined) kids.set(up, [...(kids.get(up) ?? []), i])
+    else roots.push(i)
+  }
+  const rows: TreeRow[] = []
+  const seen = new Set<number>()
+  const walk = (i: Issue, depth: number, lead: string, self: string) => {
+    if (seen.has(i.number)) return
+    seen.add(i.number)
+    rows.push({ issue: i, depth, prefix: lead + self, ...(via.has(i.number) && depth > 0 ? { blocked: true } : {}) })
+    const cs = (kids.get(i.number) ?? []).filter(c => !seen.has(c.number))
+    const next = depth === 0 ? '' : lead + (self.startsWith('└') ? '   ' : '│  ')
+    cs.forEach((c, k) => walk(c, depth + 1, next, k === cs.length - 1 ? '└─ ' : '├─ '))
+  }
+  for (const r of roots) walk(r, 0, '', '')
+  for (const i of issues) walk(i, 0, '', '')
+  return rows
+}
+
+export type BlockerRow = Dep & { depth: number; cycle?: boolean }
+
+/** Cadena de bloqueos de un issue, en profundidad, hasta `maxDepth` niveles; corta los ciclos. */
+export function blockerChain(issues: Issue[], number: number, maxDepth = 5): BlockerRow[] {
+  const byNum = new Map(issues.map(i => [i.number, i]))
+  const rows: BlockerRow[] = []
+  const walk = (n: number, depth: number, path: Set<number>) => {
+    if (depth >= maxDepth) return
+    for (const d of byNum.get(n)?.blockedBy ?? []) {
+      if (path.has(d.number)) { rows.push({ ...d, depth, cycle: true }); continue }
+      rows.push({ ...d, depth })
+      if (!d.closed) walk(d.number, depth + 1, new Set([...path, d.number]))
+    }
+  }
+  walk(number, 0, new Set([number]))
+  return rows
 }
 
 // ── Reglas de los botones ────────────────────────────────────────────────────
